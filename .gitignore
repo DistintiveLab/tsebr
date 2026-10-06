@@ -1,0 +1,8 @@
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+docs/
+inst/doc
+.DS_Store
+.Renviron

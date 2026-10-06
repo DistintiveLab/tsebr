@@ -1,0 +1,6 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^\.git$
+^AGENTS\.md$
+^README\.Rmd$
+^codecov\.yml$

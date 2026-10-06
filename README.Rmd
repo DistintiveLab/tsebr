@@ -1,0 +1,74 @@
+---
+output: github_document
+editor_options:
+  chunk_output_type: console
+---
+
+<!-- README.md é gerado de README.Rmd; nunca editar README.md direto. -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-"
+)
+```
+
+# tsebr
+
+**Cliente R para o Portal de Dados Abertos do TSE (CKAN) e a CDN de
+arquivos**: descoberta de datasets, download com verificação SHA-512,
+leitura dos CSVs (Latin-1, separador `;`) e conformação de séries
+eleitorais (votação por seção, perfil do eleitorado, locais de votação,
+candidaturas e prestação de contas) em formato longo, pronto para painéis
+e bancos de dados — inclusive o painel
+[beep](https://github.com/DistintiveLab/beep) (aba "Adicionar dados").
+
+```{r, eval = FALSE}
+remotes::install_github("DistintiveLab/tsebr")
+```
+
+```{r, eval = FALSE}
+library(tsebr)
+
+# Descoberta no CKAN (prefira a tag de ano: package_list esteve com
+# cache desatualizado em 10/2026)
+tse_search(fq = 'tags:"Ano 2026"')
+tse_show("eleitorado-2026", padrao = "DF")
+
+# Download pela CDN com checagem de .sha512 e leitura conformada
+perf <- tse_perfis_secao(2026, uf = "DF")
+lv   <- tse_locais_votacao(2026, uf = "DF")   # traz lat/lon por seção
+vot  <- tse_resultados_secao(2022, uf = "DF") # mesmo schema de 2026
+```
+
+## Por quê um pacote novo? (antecessores e lacunas)
+
+| Antecessor | O que cobria | Por que não seguimos por ele |
+|---|---|---|
+| [`electionsBR`](https://github.com/silvadenisson/electionsBR) (CRAN 0.5.0, nov/2024) | consulta_cand, votação por município/zona e por seção, perfil do eleitorado 1998–2024, via CDN do TSE | última versão **não cobre 2026**; **não baixa prestação de contas** (só bens declarados); desenvolvimento intermitente |
+| [`CepespR`](https://github.com/Cepesp-Fgv/cepesp-r) | API CEPESP/FGV, 1998–2018 | serviço `cepespdata.io` antigo, instável/offline |
+| [`basedosdados`](https://cran.r-project.org/package=basedosdados) | tabelas TSE tratadas | exige datalake BigQuery/GCP (dependência de nuvem) |
+| [`ondedapraconversar`](https://github.com/mateuspestana/ondedapraconversar) (projeto-irmão, Python) | parser de boletins de urna (ASN.1/DER) e rate limit do endpoint `resultados.tse.jus.br` | outra stack; referência para a futura `tse_boletins()` |
+
+O `tsebr` nasce **CKAN-first**: resolve recursos por `package_search` /
+`package_show` (nada de caminhos hardcoded), baixa da CDN com verificação
+de hash publicado em par, e conforma colunas por **dicionários
+semânticos** próprios — nomes de colunas mudam entre anos.
+
+## Estado e limitações (v0.0.0.9000)
+
+- `resultados-2026` ainda não publicado no CKAN em 06/10/2026;
+  `tse_resultados_secao(2026, ...)` passa a funcionar assim que
+  publicado (as URLs seguem o padrão 2022/2024). Enquanto isso, use
+  `tse_resultados_secao(2022, ...)` para desenvolver pipelines.
+- Prestação de contas 2026: dataset disponível; layouts ainda
+  preliminares.
+- Correspondência **TSE ≠ IBGE**: `tse_municipios()` cruza por
+  nome normalizado + UF e marca empates para revisão manual.
+- Boletins de urna por seção (endpoint `resultados.tse.jus.br`,
+  fora do CKAN) ainda não implementados.
+
+## Licença
+
+MIT © 2026 DistintiveLab.
