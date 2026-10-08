@@ -24,11 +24,15 @@ tse_boletins <- \(ano = 2026, uf, dest_dir = NULL) {
   if (is.null(cfg)) {
     stop("tse_boletins: sem acesso a ", cfg_url)
   }
-  pleitos <- cfg$pleitos |>
-    (\(x) do.call(rbind, lapply(names(x), \(k)
-      data.frame(pleito = k, descricao = x[[k]]))))()
-  pleito_row <- pleitos[grepl(as.character(ano), pleitos$descricao), ]
-  if (!nrow(pleito_row)) {
+  ## cfg$pl e um data.frame com colunas cd (codigo), c (ciclo como
+  ## "ele2026"), dt (data), cdpr (codigo do pleito-pai)
+  pleitos_df <- cfg$pl
+  if (is.null(pleitos_df) || !is.data.frame(pleitos_df)) {
+    stop("tse_boletins: estrutura de pleitos inesperada no config")
+  }
+  ciclos_ano <- grep(sprintf("ele%d|/%d/", ano, ano), pleitos_df$c, value = TRUE)
+  pleito_row <- pleitos_df[pleitos_df$c %in% ciclos_ano, ]
+  if (is.null(pleito_row) || !is.data.frame(pleito_row) || nrow(pleito_row) == 0) {
     stop("tse_boletins: pleito ", ano, " nao encontrado no config")
   }
 
