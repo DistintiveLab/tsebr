@@ -1,7 +1,7 @@
 Package: tsebr
 Type: Package
 Title: Acesso a Dados Eleitorais do TSE (Portal de Dados Abertos)
-Version: 0.0.4.9001
+Version: 0.0.4.9002
 Authors@R: person("DistintiveLab", role = c("aut", "cre"),
     email = "contato@distintive.com.br")
 Description: Cliente R para o Portal de Dados Abertos do TSE

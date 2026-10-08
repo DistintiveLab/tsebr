@@ -28,6 +28,13 @@ tse_read <- \(arquivo, max_rows = NULL) {
     if (!length(csvs)) {
       stop("tse_read: nenhum CSV dentro de ", basename(arquivo))
     }
+    ## zip nacional: multiplos CSVs (um por UF) — ler todos e empilhar
+    if (length(csvs) > 1) {
+      partes <- lapply(csvs, \(f) data.table::fread(
+        f, encoding = "Latin-1", dec = ",", sep = "auto",
+        showProgress = FALSE, nrows = max_rows %||% -1L))
+      return(data.table::rbindlist(partes, fill = TRUE))
+    }
     arquivo <- csvs[1]
   }
   dados <- data.table::fread(
