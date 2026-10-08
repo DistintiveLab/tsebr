@@ -107,7 +107,9 @@ tse_layouts <- \() {
       "^NR_LATITUDE$" = "lat", "^NR_LONGITUDE$" = "lon",
       "^QT_ELEITOR_SECAO$" = "eleitores_secao"),
     consulta_cand = c(
-      "^SG_UF$" = "uf", "^CD_MUNICIPIO$" = "cod_municipio_tse",
+      "^SG_UF$" = "uf",
+      "^SG_UE$|^CD_MUNICIPIO$" = "cod_municipio_tse",
+      "^NM_UE$|^NM_MUNICIPIO$" = "municipio",
       "^SQ_CANDIDATO$" = "sq_candidato", "^NM_CANDIDATO$" = "nome",
       "^NM_URNA_CANDIDATO$" = "nome_urna", "^NR_CANDIDATO$" = "nr_candidato",
       "^SG_PARTIDO$" = "partido", "^DS_CARGO$" = "cargo",

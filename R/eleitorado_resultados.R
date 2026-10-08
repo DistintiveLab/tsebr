@@ -9,7 +9,7 @@ tse_resultados_secao <- \(ano, uf, detalhe = FALSE, dest_dir = NULL) {
     if (length(ufs) < 5L) dados <- dados[toupper(dados$sg_uf) %in% ufs, ]
   } else {
     ## votacao_secao: zip POR UF (um arquivo por estado)
-    ufs <- .tse_ufs(uf)
+    ufs <- setdiff(.tse_ufs(uf), "ZZ")
     puxar <- \(sg) {
       arquivo <- sprintf("%s_%s_%s.zip", assunto, ano, sg)
       zip <- tse_download(.tse_cdn_url(ano, assunto, arquivo), dest_dir)
