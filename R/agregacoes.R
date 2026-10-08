@@ -60,6 +60,7 @@ tse_resultados_municipio <- \(ano = NULL, uf, cargo = NULL, nr_votavel = NULL,
   dados <- data.table::rbindlist(lapply(anos, \(a)
     tse_resultados_secao(a, uf, detalhe = FALSE, dest_dir = dest_dir)),
     fill = TRUE)
+  if (is.null(mapa)) mapa <- .mapa_municipios_interno(anos, uf)
   if (!is.null(cargo) && "cargo" %in% names(dados)) {
     dados <- dados[grepl(cargo, dados$cargo, ignore.case = TRUE), ]
   }
@@ -107,6 +108,7 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
   dados <- data.table::rbindlist(lapply(anos, \(a)
     tse_resultados_secao(a, uf, detalhe = TRUE, dest_dir = dest_dir)),
     fill = TRUE)
+  if (is.null(mapa)) mapa <- .mapa_municipios_interno(anos, uf)
   if (!metrica %in% names(dados)) {
     stop("tsebr: metrica '", metrica, "' ausente no detalhe ", ano,
          " (colunas: ", paste(names(dados), collapse = ", "), ")")
@@ -160,4 +162,17 @@ tse_prestacao_uf <- \(ano = NULL, tipo = c("receitas", "despesas"),
                   tipo = tipo) |>
     dplyr::filter(!is.na(local)) |>
     dplyr::select(local, periodo, valor, uf, tipo)
+}
+
+#' Mapa TSE x IBGE interno (conexao padrao via env vars)
+#' @keywords internal
+.mapa_municipios_interno <- \(anos, uf) {
+  con <- DBI::dbConnect(RPostgres::Postgres(),
+                        user = Sys.getenv("user", "beep"),
+                        password = Sys.getenv("password", "aEd1#man@gR"),
+                        host = Sys.getenv("host", "127.0.0.1"),
+                        dbname = Sys.getenv("dbname", "beepdb"))
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  ano_max <- max(anos, na.rm = TRUE)
+  tse_municipios(ano_max, con = con, uf = uf)
 }
