@@ -35,16 +35,19 @@
 #' cand <- tse_candidaturas(2026, uf = "DF", cargo = "GOVERNADOR")
 #' }
 #' @export
-tse_candidaturas <- \(ano, uf, cargo = NULL, dest_dir = NULL) {
+tse_candidaturas <- \(ano = NULL, uf, cargo = NULL, dest_dir = NULL) {
   assunto <- "consulta_cand"
   ufs <- .tse_ufs(uf)
-  puxar <- \(sg) {
-    arquivo <- sprintf("%s_%s_%s.zip", assunto, ano, sg)
-    zip <- tse_download(.tse_cdn_url(ano, assunto, arquivo), dest_dir)
+  anos <- if (is.null(ano)) tse_anos_disponiveis("todas") else
+    sort(unique(as.integer(ano)))
+  puxar <- \(sg, a) {
+    arquivo <- sprintf("%s_%s_%s.zip", assunto, a, sg)
+    zip <- tse_download(.tse_cdn_url(a, assunto, arquivo), dest_dir)
     conformar(tse_read(zip), tse_layouts()[[assunto]])
   }
-  dados <- if (length(ufs) == 1L) puxar(ufs) else
-    data.table::rbindlist(lapply(ufs, puxar), fill = TRUE)
+  dados <- data.table::rbindlist(
+    lapply(anos, \(a) data.table::rbindlist(lapply(ufs, puxar, a), fill = TRUE)),
+    fill = TRUE)
   if (!is.null(cargo)) {
     dados <- dados[grepl(cargo, dados$cargo, ignore.case = TRUE), ]
   }

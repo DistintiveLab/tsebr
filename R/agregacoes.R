@@ -53,10 +53,13 @@
 #'                          nr_votavel = 13, mapa = mapa)
 #' }
 #' @export
-tse_resultados_municipio <- \(ano, uf, cargo = NULL, nr_votavel = NULL,
+tse_resultados_municipio <- \(ano = NULL, uf, cargo = NULL, nr_votavel = NULL,
                               mapa = NULL, dest_dir = NULL) {
-  dados <- tse_resultados_secao(ano, uf, detalhe = FALSE,
-                                dest_dir = dest_dir)
+  anos <- if (is.null(ano)) tse_anos_disponiveis("todas") else
+    sort(unique(as.integer(ano)))
+  dados <- data.table::rbindlist(lapply(anos, \(a)
+    tse_resultados_secao(a, uf, detalhe = FALSE, dest_dir = dest_dir)),
+    fill = TRUE)
   if (!is.null(cargo) && "cargo" %in% names(dados)) {
     dados <- dados[grepl(cargo, dados$cargo, ignore.case = TRUE), ]
   }
@@ -94,13 +97,16 @@ tse_resultados_municipio <- \(ano, uf, cargo = NULL, nr_votavel = NULL,
 #'                       mapa = mapa)
 #' }
 #' @export
-tse_detalhe_municipio <- \(ano, uf, metrica = c("aptos", "comparecimento",
+tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento",
                                                 "abstencoes", "votos_nulos",
                                                 "votos_brancos"),
                            mapa = NULL, dest_dir = NULL) {
   metrica <- match.arg(metrica)
-  dados <- tse_resultados_secao(ano, uf, detalhe = TRUE,
-                                dest_dir = dest_dir)
+  anos <- if (is.null(ano)) tse_anos_disponiveis("todas") else
+    sort(unique(as.integer(ano)))
+  dados <- data.table::rbindlist(lapply(anos, \(a)
+    tse_resultados_secao(a, uf, detalhe = TRUE, dest_dir = dest_dir)),
+    fill = TRUE)
   if (!metrica %in% names(dados)) {
     stop("tsebr: metrica '", metrica, "' ausente no detalhe ", ano,
          " (colunas: ", paste(names(dados), collapse = ", "), ")")
@@ -138,10 +144,13 @@ tse_detalhe_municipio <- \(ano, uf, metrica = c("aptos", "comparecimento",
 #' tse_prestacao_uf(2026, tipo = "receitas")
 #' }
 #' @export
-tse_prestacao_uf <- \(ano, tipo = c("receitas", "despesas"),
+tse_prestacao_uf <- \(ano = NULL, tipo = c("receitas", "despesas"),
                       dest_dir = NULL) {
   tipo <- match.arg(tipo)
-  dados <- tse_prestacao(ano, tipo = tipo, dest_dir = dest_dir)
+  anos <- if (is.null(ano)) tse_anos_disponiveis("todas") else
+    sort(unique(as.integer(ano)))
+  dados <- data.table::rbindlist(lapply(anos, \(a)
+    tse_prestacao(a, tipo = tipo, dest_dir = dest_dir)), fill = TRUE)
   dados |>
     dplyr::group_by(uf) |>
     dplyr::summarise(valor = sum(as.numeric(valor), na.rm = TRUE),
