@@ -1,108 +1,63 @@
-#' Resultados eleitorais de 2026 via resultados.tse.jus.br
+#' Resultados eleitorais de 2026 via boletim de urna WEB (bweb)
 #'
-#' O dataset `resultados-2026` ainda não foi publicado no CKAN.
-#' Enquanto isso, o TSE serve boletins de urna e resultados
-#' agregados via `resultados.tse.jus.br` — o mesmo endpoint usado
-#' pelo projeto ondedapraconversar.
+#' O dataset `resultados-2026-boletim-de-urna` do CKAN/CDN publica
+#' o boletim de urna WEB (bweb) como CSV por UF — votos por
+#' candidato em cada secao, com aptos, comparecimento e abstencoes.
+#' Este modulo baixa o CSV, agrega por municipio e devolve no
+#' formato longo do DW beep.
+#'
+#' O TSE bloqueia IPs que passam de ~100 req/s (limite 10 min);
+#' aqui e um unico download por UF (sem rate limit).
 #'
 #' @param ano Ano eleitoral (2026).
-#' @param uf Sigla da UF.
+#' @param uf Sigla da UF ou "all" (baixa 27 UFs sequencialmente).
 #' @param dest_dir Diretorio de cache.
-#' @return `data.frame` com votos por candidato/município.
+#' @return `data.frame` com votos por candidato por municipio.
 #' @examples
 #' \dontrun{
 #' r <- tse_boletins(2026, uf = "DF")
 #' }
 #' @export
 tse_boletins <- \(ano = 2026, uf, dest_dir = NULL) {
-  base <- "https://resultados.tse.jus.br/oficial"
   uf <- toupper(uf)
 
-  ## 1) config: mapeia a eleicao para o codigo do pleito
-  cfg_url <- paste0(base, "/comum/config/ele-c.json")
-  cfg <- tryCatch(jsonlite::fromJSON(cfg_url), error = \(e) NULL)
-  if (is.null(cfg)) {
-    stop("tse_boletins: sem acesso a ", cfg_url)
+  ## URL do bweb: primeiro turno, timestamp do CDN muda por UF —
+  ## descobrir via CKAN (resultados-2026-boletim-de-urna)
+  ds <- tse_search(q = "", fq = sprintf('name:resultados-%d-boletim-de-urna', ano))
+  if (!nrow(ds)) {
+    stop("tse_boletins: dataset resultados-", ano,
+         "-boletim-de-urna nao encontrado no CKAN")
   }
-  ## cfg$pl e um data.frame com colunas cd (codigo), c (ciclo como
-  ## "ele2026"), dt (data), cdpr (codigo do pleito-pai)
-  pleitos_df <- cfg$pl
-  if (is.null(pleitos_df) || !is.data.frame(pleitos_df)) {
-    stop("tse_boletins: estrutura de pleitos inesperada no config")
+  recs <- tse_show(ds$name[1], padrao = sprintf("_1t_%s_", uf))
+  if (!nrow(recs)) {
+    ## fallback: padrao sem o turno
+    recs <- tse_show(ds$name[1], padrao = uf)
+    recs <- recs[!grepl("sha512", recs$url), ]
   }
-  ciclos_ano <- grep(sprintf("ele%d|/%d/", ano, ano), pleitos_df$c, value = TRUE)
-  pleito_row <- pleitos_df[pleitos_df$c %in% ciclos_ano, ]
-  if (is.null(pleito_row) || !is.data.frame(pleito_row) || nrow(pleito_row) == 0) {
-    stop("tse_boletins: pleito ", ano, " nao encontrado no config")
+  if (!nrow(recs)) {
+    stop("tse_boletins: sem bweb para ", uf, " em ", ds$name[1])
+  }
+  url_zip <- recs$url[1]
+
+  ## download + leitura (um CSV nacional por UF dentro do zip)
+  zip <- tse_download(url_zip, dest_dir)
+  dados <- tse_read(zip)
+
+  ## renomeia colunas-chave
+  renomear <- c(
+    "ANO_ELEICAO" = "ano", "SG_UF" = "uf",
+    "CD_MUNICIPIO" = "cod_municipio_tse", "NM_MUNICIPIO" = "municipio",
+    "NR_ZONA" = "zona", "NR_SECAO" = "secao",
+    "DS_CARGO_PERGUNTA" = "cargo",
+    "NR_VOTAVEL" = "nr_votavel", "NM_VOTAVEL" = "nm_votavel",
+    "QT_VOTOS" = "votos",
+    "QT_APTOS" = "aptos", "QT_COMPARECIMENTO" = "comparecimento",
+    "QT_ABSTENCOES" = "abstencoes")
+  for (de in names(renomear)) {
+    if (de %in% names(dados)) names(dados)[names(dados) == de] <- renomear[[de]]
   }
 
-  ## 2) lista de municipios da UF
-  mun_url <- paste0(base, "/ele", ano, "/config/mun-e", ano, "/municipios.json")
-  muns <- tryCatch(jsonlite::fromJSON(mun_url), error = \(e) NULL)
-  if (is.null(muns)) {
-    muns <- tryCatch(jsonlite::fromJSON(paste0(base, "/ele", ano,
-      "/config/mun/municipios.json")), error = \(e) NULL)
-  }
-  if (is.null(muns)) {
-    stop("tse_boletins: sem lista de municipios para ", ano)
-  }
-  muns_df <- if (is.data.frame(muns)) muns else
-    do.call(rbind, lapply(muns, \(m) data.frame(
-      codigo = m$codigo, nome = m$nome)))
-
-  ## 3) para cada municipio, baixa o JSON de resultados
-  resultados <- lapply(seq_len(nrow(muns_df)), \(i) {
-    mun_cod <- muns_df$codigo[i]
-    mun_nome <- muns_df$nome[i]
-    for (code in pleito_row$pleito) {
-      url <- paste0(base, "/ele", ano, "/", code,
-                    "/dados/", uf, "/", mun_cod, "/",
-                    "p000", code, "-", uf, "-m", mun_cod, ".json")
-      r <- tryCatch(jsonlite::fromJSON(url), error = \(e) NULL)
-      if (!is.null(r)) {
-        cand <- r$cand
-        if (!is.null(cand) && nrow(cand) > 0) {
-          return(data.frame(
-            ano = ano, uf = uf, cod_municipio = mun_cod,
-            municipio = mun_nome,
-            nr_candidato = as.character(cand$n),
-            nome = as.character(cand$nm),
-            partido = as.character(cand$cc),
-            votos = as.numeric(cand$vap),
-            stringsAsFactors = FALSE))
-        }
-      }
-    }
-    NULL
-  })
-  resultado <- data.table::rbindlist(
-    Filter(Negate(is.null), resultados), fill = TRUE)
-  if (!nrow(resultado)) {
-    stop("tse_boletins: nenhum resultado baixado para ", uf, " ", ano)
-  }
-  resultado
-}
-
-#' Resultados 2026 agregados por município (via boletins)
-#'
-#' Wrapper de conveniencia: chama [tse_boletins()] e devolve
-#' no formato longo (local, periodo, valor) para o DW beep.
-#'
-#' @inheritParams tse_boletins
-#' @param mapa `data.frame` com cod_municipio_tse e ibge (7d);
-#'   sem ele, devolve os codigos TSE.
-#' @export
-tse_resultados_2026_municipio <- \(uf, mapa = NULL, dest_dir = NULL) {
-  dados <- tse_boletins(2026, uf = uf, dest_dir = dest_dir)
-  if (is.null(mapa)) {
-    return(dados |> dplyr::mutate(periodo = as.Date("2026-10-31")))
-  }
-  dados |>
-    dplyr::left_join(mapa, by = c("cod_municipio" = "cod_municipio_tse")) |>
-    dplyr::filter(!is.na(ibge)) |>
-    dplyr::mutate(local = as.numeric(ibge),
-                  periodo = as.Date("2026-10-31"),
-                  valor = votos) |>
-    dplyr::select(local, periodo, valor, uf, municipio,
-                  nr_candidato, nome, partido)
+  ## adiciona periodo
+  dados$periodo <- as.Date(paste0(ano, "-10-04"))
+  dados
 }
