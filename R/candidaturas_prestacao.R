@@ -40,14 +40,12 @@ tse_candidaturas <- \(ano = NULL, uf, cargo = NULL, dest_dir = NULL) {
   ufs <- .tse_ufs(uf)
   anos <- if (is.null(ano)) tse_anos_disponiveis("todas") else
     sort(unique(as.integer(ano)))
-  puxar <- \(sg, a) {
-    arquivo <- sprintf("%s_%s_%s.zip", assunto, a, sg)
+  puxar <- \(a) {
+    arquivo <- sprintf("%s_%s.zip", assunto, a)
     zip <- tse_download(.tse_cdn_url(a, assunto, arquivo), dest_dir)
     conformar(tse_read(zip), tse_layouts()[[assunto]])
   }
-  dados <- data.table::rbindlist(
-    lapply(anos, \(a) data.table::rbindlist(lapply(ufs, puxar, a), fill = TRUE)),
-    fill = TRUE)
+  dados <- data.table::rbindlist(lapply(anos, puxar), fill = TRUE)
   if (!is.null(cargo)) {
     dados <- dados[grepl(cargo, dados$cargo, ignore.case = TRUE), ]
   }
