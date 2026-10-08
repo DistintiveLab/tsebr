@@ -22,14 +22,21 @@ tse_read <- \(arquivo, max_rows = NULL) {
   if (tolower(tools::file_ext(arquivo)) == "zip") {
     pasta <- tempfile()
     dir.create(pasta)
+    ## CSV extraido e temporario: remover ao sair (zips nacionais
+    ## chegam a GBs e vazavam para o diretorio de tmp do R)
+    on.exit(unlink(pasta, recursive = TRUE, force = TRUE), add = TRUE)
     try(utils::unzip(arquivo, exdir = pasta), silent = TRUE)
     csvs <- list.files(pasta, pattern = "\\.(csv|txt)$",
                        ignore.case = TRUE, full.names = TRUE)
     if (!length(csvs)) {
       stop("tse_read: nenhum CSV dentro de ", basename(arquivo))
     }
-    ## zip nacional: multiplos CSVs (um por UF) — ler todos e empilhar
+    ## zip nacional: multiplos CSVs (um por UF) — ler todos e
+    ## empilhar. O CSV *_BRASIL.csv e espelho nacional dos por-UF
+    ## (ex.: consulta_cand): descarta-lo evita duplicar as linhas
     if (length(csvs) > 1) {
+      espelho <- grepl("BRASIL", basename(csvs))
+      if (any(espelho) && any(!espelho)) csvs <- csvs[!espelho]
       partes <- lapply(csvs, \(f) data.table::fread(
         f, encoding = "Latin-1", dec = ",", sep = "auto",
         showProgress = FALSE, nrows = max_rows %||% -1L))
@@ -84,7 +91,8 @@ tse_layouts <- \() {
       "^NM_MUNICIPIO$" = "municipio", "^NR_ZONA$" = "zona",
       "^NR_SECAO$" = "secao", "^NR_LOCAL_VOTACAO$" = "cod_local",
       "^NR_VOTAVEL$" = "nr_votavel", "^SQ_CANDIDATO$" = "sq_candidato",
-      "^QT_VOTOS$" = "votos"),
+      "^QT_VOTOS$" = "votos", "^NR_TURNO$" = "turno",
+      "^DS_CARGO$" = "cargo", "^NM_VOTAVEL$" = "nm_votavel"),
     detalhe_votacao_secao = c(
       "^SG_UF$" = "uf", "^CD_MUNICIPIO$" = "cod_municipio_tse",
       "^NR_ZONA$" = "zona", "^NR_SECAO$" = "secao",

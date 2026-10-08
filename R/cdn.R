@@ -57,7 +57,8 @@ tse_download <- \(url_zip, dest_dir = NULL, verifica_hash = TRUE,
   }
   dir.create(dest_dir, showWarnings = FALSE, recursive = TRUE)
   destino <- file.path(dest_dir, basename(url_zip))
-  if (file.exists(destino) && !sobrescrever) {
+  ## file.size > 0: download malogrado pode deixar arquivo vazio
+  if (file.exists(destino) && file.size(destino) > 0 && !sobrescrever) {
     return(invisible(normalizePath(destino)))
   }
   tryCatch(

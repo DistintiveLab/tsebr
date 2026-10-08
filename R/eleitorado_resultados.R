@@ -6,7 +6,7 @@ tse_resultados_secao <- \(ano, uf, detalhe = FALSE, dest_dir = NULL) {
     zip <- tse_download(.tse_cdn_url(ano, assunto, arquivo), dest_dir)
     dados <- conformar(tse_read(zip), tse_layouts()[[assunto]])
     ufs <- .tse_ufs(uf)
-    if (length(ufs) < 5L) dados <- dados[toupper(dados$sg_uf) %in% ufs, ]
+    if (length(ufs) < 5L) dados <- dados[toupper(dados$uf) %in% ufs, ]
   } else {
     ## votacao_secao: zip POR UF (um arquivo por estado)
     ufs <- setdiff(.tse_ufs(uf), "ZZ")
@@ -19,6 +19,20 @@ tse_resultados_secao <- \(ano, uf, detalhe = FALSE, dest_dir = NULL) {
       data.table::rbindlist(lapply(ufs, puxar), fill = TRUE)
   }
   dados
+}
+
+#' Votacao por secao do presidente (zip BR nacional, 2018+)
+#'
+#' A partir de 2018 o TSE publica a votacao por secao para
+#' PRESIDENTE em um zip nacional proprio
+#' (`votacao_secao_{ano}_BR.zip`); os zips por UF trazem apenas os
+#' cargos estaduais. Le o arquivo uma unica vez e filtra as UFs.
+#' @keywords internal
+tse_resultados_secao_br <- \(ano, ufs, dest_dir = NULL) {
+  arquivo <- sprintf("votacao_secao_%s_BR.zip", ano)
+  zip <- tse_download(.tse_cdn_url(ano, "votacao_secao", arquivo), dest_dir)
+  dados <- conformar(tse_read(zip), tse_layouts()$votacao_secao)
+  dados[toupper(dados$uf) %in% ufs, , drop = FALSE]
 }
 
 #' Perfil do eleitorado por secao eleitoral
@@ -73,6 +87,9 @@ tse_locais_votacao <- \(ano, uf = NULL, dest_dir = NULL) {
   arquivo <- sprintf("%s_%s.zip", assunto, ano)
   zip <- tse_download(.tse_cdn_url(ano, assunto, arquivo), dest_dir)
   dados <- conformar(tse_read(zip), tse_layouts()[[assunto]])
-  if (!is.null(uf)) dados <- dados[dados$uf == toupper(uf), ]
+  if (!is.null(uf)) {
+    manter <- dados$uf == toupper(uf)
+    dados <- dados[manter, , drop = FALSE]
+  }
   dados
 }

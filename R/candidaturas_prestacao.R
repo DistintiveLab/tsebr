@@ -21,10 +21,10 @@
 
 #' Candidaturas (consulta_cand)
 #'
-#' Baixa e le `consulta_cand_{ano}_{uf}.zip` (um zip por UF; o
-#' recorte nacional e o conjunto das 27 UFs).
+#' Baixa e le `consulta_cand_{ano}.zip` (arquivo nacional unico;
+#' o filtro por `uf` e aplicado apos a leitura).
 #'
-#' @param ano Ano eleitoral.
+#' @param ano Ano eleitoral ou vetor de anos; NULL = todas.
 #' @param uf Sigla da UF ou "all".
 #' @param cargo Regex opcional de cargo (ex.: "PRESIDENTE",
 #'   "GOVERNADOR", "DEPUTADO FEDERAL", case-insensitive).
@@ -46,8 +46,12 @@ tse_candidaturas <- \(ano = NULL, uf, cargo = NULL, dest_dir = NULL) {
     conformar(tse_read(zip), tse_layouts()[[assunto]])
   }
   dados <- data.table::rbindlist(lapply(anos, puxar), fill = TRUE)
+  if (!identical(uf, "all")) {
+    dados <- dados[toupper(dados$uf) %in% ufs, , drop = FALSE]
+  }
   if (!is.null(cargo)) {
-    dados <- dados[grepl(cargo, dados$cargo, ignore.case = TRUE), ]
+    manter <- grepl(cargo, dados$cargo, ignore.case = TRUE)
+    dados <- dados[manter, , drop = FALSE]
   }
   dados
 }
@@ -95,7 +99,10 @@ tse_prestacao <- \(ano, tipo = c("receitas", "despesas"),
   zip <- tse_download(alvo, dest_dir)
   layout <- tse_layouts()[[paste0(tipo, "_candidato")]]
   dados <- conformar(tse_read(zip), layout)
-  if (!is.null(uf)) dados <- dados[dados$uf == toupper(uf), ]
+  if (!is.null(uf)) {
+    manter <- dados$uf == toupper(uf)
+    dados <- dados[manter, , drop = FALSE]
+  }
   dados
 }
 
@@ -126,15 +133,32 @@ tse_municipios <- \(ano, con = NULL, uf = NULL) {
     cand,
     cod_municipio_tse = as.character(cod_municipio_tse),
     municipio = as.character(municipio),
-    uf = as.character(uf))
+    uf = as.character(uf)) |>
+    ## BR (candidaturas nacionais) e ZZ (exterior) nao sao
+    ## municipios: fora do mapa TSE x IBGE
+    dplyr::filter(!uf %in% c("BR", "ZZ")) |>
+    ## DF: o consulta_cand traz SG_UE="DF", mas os arquivos de
+    ## votacao usam o codigo TSE de municipio de Brasilia (97012)
+    dplyr::mutate(cod_municipio_tse = ifelse(
+      cod_municipio_tse == "DF", "97012", cod_municipio_tse))
   if (is.null(con)) return(lado_tse)
   ibge <- DBI::dbGetQuery(con, paste(
     "SELECT geoloc_id, local_name FROM local",
     "WHERE length(geoloc_id::text) = 7",
-    "AND (local_id < 5571 OR local_id > 7087)"))
+    ## zona de carga municipal: local_id 1..5571 (o 5571 e
+    ## Brasilia!) — os estratos PNAD comecam em 5572
+    "AND (local_id < 5572 OR local_id > 7087)"))
   norm <- \(x) toupper(iconv(
     gsub("\\s+", " ", trimws(x)), to = "ASCII//TRANSLIT"))
-  lado_tse$nome_norm <- norm(lado_tse$municipio)
+  ## nomes que divergem entre TSE e IBGE (tabela do
+  ## crosswalk classico; acrescentar conforme achados)
+  equivalentes <- c(
+    "DISTRITO FEDERAL" = "BRASILIA",
+    "EMBU" = "EMBU DAS ARTES",
+    "MOJI MIRIM" = "MOGI MIRIM",
+    "PARATI" = "PARATY")
+  lado_tse$nome_norm <- dplyr::recode(norm(lado_tse$municipio),
+                                      !!!equivalentes)
   ibge$nome_norm <- norm(ibge$local_name)
   ibge$uf <- substr(as.character(ibge$geoloc_id), 1, 2)
   ibge$uf <- dplyr::recode(
@@ -149,6 +173,6 @@ tse_municipios <- \(ano, con = NULL, uf = NULL) {
                               nome_norm, uf)
   m$empate <- m$nome_norm %in% n_por_chave$nome_norm[n_por_chave$n > 1] |
     duplicated(m[, c("nome_norm", "uf")])
-  m[, c("cod_municipio_tse", "municipio", "uf",
-        "geoloc_id", "empate")]
+  m[, c("cod_municipio_tse", "municipio", "uf", "geoloc_id", "empate")] |>
+    dplyr::mutate(geoloc_id = as.numeric(geoloc_id))
 }

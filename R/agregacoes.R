@@ -13,21 +13,127 @@
 #' Agrega linhas por municipio usando o mapa TSE x IBGE
 #'
 #' Helper puro (testavel offline): junta `dados` ao `mapa`
-#' (cod_municipio_tse -> ibge 7 digitos), agrupa pelo codigo IBGE
-#' e soma `valor`.
+#' (cod_municipio_tse -> ibge 7 digitos), agrupa por `grupos`
+#' (default: so ibge; passe extras como periodo para manter a
+#' chave do DW) e soma `valor`. Aceita mapa no formato de
+#' [tse_municipios()] (coluna `geoloc_id` no lugar de `ibge`);
+#' municipios marcados com `empate = TRUE` sao descartados do mapa
+#' (correspondencia ambigua por nome) e linhas sem correspondencia
+#' saem do resultado.
 #' @keywords internal
-.agregar_por_mapa <- \(dados, mapa, valor) {
-  dados$.valor <- as.numeric(dados[[valor]])
+.agregar_por_mapa <- \(dados, mapa, valor, grupos = "ibge") {
+  if (!valor %in% names(dados)) {
+    stop("tsebr: coluna de valor '", valor, "' ausente nos dados ",
+         "(colunas: ", paste(names(dados), collapse = ", "), ")")
+  }
+  if (!"ibge" %in% names(mapa) && "geoloc_id" %in% names(mapa)) {
+    mapa$ibge <- as.numeric(mapa$geoloc_id)
+  }
+  faltando <- setdiff(c("cod_municipio_tse", "ibge"), names(mapa))
+  if (length(faltando)) {
+    stop("tsebr: mapa sem as colunas ", paste(faltando, collapse = ", "),
+         " — use a saida de tse_municipios() ou um data.frame com ",
+         "cod_municipio_tse e ibge")
+  }
+  if ("empate" %in% names(mapa)) {
+    mapa <- mapa[is.na(mapa$empate) | !mapa$empate, , drop = FALSE]
+  }
+  valores <- as.numeric(dados[[valor]])
+  dados <- dplyr::mutate(
+    dados,
+    .valor = valores,
+    cod_municipio_tse = as.character(cod_municipio_tse))
+  mapa <- dplyr::mutate(
+    mapa,
+    cod_municipio_tse = as.character(cod_municipio_tse),
+    ibge = as.numeric(ibge))
   saida <- dplyr::left_join(
     dados,
-    mapa[, c("cod_municipio_tse", "ibge")] |>
-      dplyr::mutate(cod_municipio_tse = as.character(cod_municipio_tse)),
+    mapa[, c("cod_municipio_tse", "ibge")],
     by = c(cod_municipio_tse = "cod_municipio_tse"))
   saida |>
-    dplyr::group_by(ibge) |>
+    dplyr::group_by(dplyr::across(dplyr::all_of(grupos))) |>
     dplyr::summarise(valor = sum(.valor, na.rm = TRUE),
                      .groups = "drop") |>
     dplyr::filter(!is.na(ibge))
+}
+
+#' Votos por municipio, turno, cargo e votavel
+#'
+#' Agrega `votacao_secao` por municipio TSE x turno x cargo x
+#' votavel, processando **um ano e uma UF por vez**: o conjunto
+#' nacional por secao nao cabe em memoria (foi a causa de sessoes
+#' do R mortas em cargas "all"). Os codigos de municipio sao os do
+#' TSE (`cod_municipio_tse`); para encaixar no DW beep, use
+#' [tse_resultados_municipio()], que junta o mapa IBGE.
+#'
+#' @param ano Ano eleitoral ou vetor de anos; NULL = todas as
+#'   eleicoes disponiveis.
+#' @param uf Sigla da UF ou "all".
+#' @param cargo Regex de cargo (ex.: "PRESIDENTE"), opcional.
+#' @param nr_votavel Numero do candidato/partido, opcional.
+#' @param dest_dir Diretorio de cache do download.
+#' @return `data.frame`: ano, periodo, uf, cod_municipio_tse,
+#'   municipio, turno, cargo, nr_votavel, nm_votavel, votos.
+#' @examples
+#' \dontrun{
+#' v <- tse_votacao_municipio(2022, "DF")
+#' }
+#' @export
+tse_votacao_municipio <- \(ano = NULL, uf, cargo = NULL, nr_votavel = NULL,
+                            dest_dir = NULL) {
+  anos <- if (is.null(ano)) tse_anos_disponiveis("todas") else
+    sort(unique(as.integer(ano)))
+  ufs <- setdiff(.tse_ufs(uf), "ZZ")
+  chaves <- c("uf", "cod_municipio_tse", "municipio", "turno",
+              "cargo", "nr_votavel", "nm_votavel")
+  agregar <- \(d, a) {
+    if (!"votos" %in% names(d)) {
+      stop("tsebr: coluna 'votos' ausente em votacao_secao ", a,
+           " — verifique o layout do ciclo (tse_layouts()$votacao_secao)")
+    }
+    ## filtros avaliados FORA do d[...]: dentro do [.data.table
+    ## um simbolo como `cargo` resolve primeiro como COLUNA
+    if (!is.null(cargo) && "cargo" %in% names(d)) {
+      manter <- grepl(cargo, d$cargo, ignore.case = TRUE)
+      d <- d[manter, , drop = FALSE]
+    }
+    if (!is.null(nr_votavel) && "nr_votavel" %in% names(d)) {
+      manter <- d$nr_votavel == as.character(nr_votavel)
+      d <- d[manter, , drop = FALSE]
+    }
+    mantidas <- intersect(chaves, names(d))
+    d |>
+      dplyr::select(dplyr::all_of(c(mantidas, "votos"))) |>
+      dplyr::mutate(votos = as.numeric(votos),
+                    cargo = if ("cargo" %in% names(d)) toupper(cargo)) |>
+      dplyr::group_by(dplyr::across(dplyr::all_of(mantidas))) |>
+      dplyr::summarise(votos = sum(votos, na.rm = TRUE), .groups = "drop") |>
+      dplyr::mutate(ano = as.integer(a),
+                    periodo = as.Date(paste0(a, "-12-31")))
+  }
+  puxar_uf <- \(a, sg) {
+    message("tsebr: votacao_secao ", a, " ", sg)
+    d <- tse_resultados_secao(a, sg, detalhe = FALSE, dest_dir = dest_dir)
+    agregar(d, a)
+  }
+  ## presidente (2018+): zip BR nacional, lido uma vez por ano. A
+  ## falha aqui e fatal (sem o BR o presidente some da serie)
+  puxar_br <- \(a) {
+    message("tsebr: votacao_secao ", a, " BR (presidente)")
+    d <- tryCatch(tse_resultados_secao_br(a, ufs, dest_dir),
+                  error = \(e) {
+                    stop("tsebr: falha ao ler o zip BR (presidente) de ", a,
+                         " — sem ele a votacao para presidente nao entra: ",
+                         conditionMessage(e))
+                  })
+    agregar(d, a)
+  }
+  chunks <- Filter(Negate(is.null), unlist(
+    lapply(anos, \(a) c(lapply(ufs, \(sg) puxar_uf(a, sg)), list(puxar_br(a)))),
+    recursive = FALSE))
+  data.table::rbindlist(chunks, fill = TRUE) |>
+    tibble::as_tibble()
 }
 
 #' Votos nominais por municipio
@@ -35,9 +141,10 @@
 #' Agrega `votacao_secao` ao nivel municipal (codigo IBGE 7
 #' digitos) usando `mapa` (de `tse_municipios()`). Sem
 #' `nr_votavel`, devolve o total de votos nominais do cargo por
-#' municipio; com `nr_votavel`, apenas aquele votavel.
+#' municipio; com `nr_votavel`, apenas aquele votavel. A leitura e
+#' uma UF/ano por vez (ver [tse_votacao_municipio()]).
 #'
-#' @param ano Ano eleitoral.
+#' @param ano Ano eleitoral ou vetor de anos; NULL = todas.
 #' @param uf Sigla da UF.
 #' @param cargo Regex de cargo (ex.: "PRESIDENTE"), opcional.
 #' @param nr_votavel Numero do candidato/partido, opcional.
@@ -45,42 +152,23 @@
 #'   (7 digitos); sem ele, `local` sai como codigo TSE (nao
 #'   encaixa no DW beep).
 #' @param dest_dir Diretorio de cache do download.
-#' @return `data.frame` long: local, periodo, valor (+ uf, cargo).
+#' @return `data.frame` long: local, periodo, valor, uf.
 #' @examples
 #' \dontrun{
-#' mapa <- tse_municipios(2022, con = con_dw, uf = "DF")
 #' tse_resultados_municipio(2022, "DF", cargo = "PRESIDENTE",
-#'                          nr_votavel = 13, mapa = mapa)
+#'                          nr_votavel = 13)
 #' }
 #' @export
 tse_resultados_municipio <- \(ano = NULL, uf, cargo = NULL, nr_votavel = NULL,
                               mapa = NULL, dest_dir = NULL) {
-  anos <- if (is.null(ano)) tse_anos_disponiveis("todas") else
-    sort(unique(as.integer(ano)))
-  dados <- data.table::rbindlist(lapply(anos, \(a)
-    tse_resultados_secao(a, uf, detalhe = FALSE, dest_dir = dest_dir)),
-    fill = TRUE)
-  if (is.null(mapa)) mapa <- .mapa_municipios_interno(anos, uf)
-  if (!is.null(cargo) && "cargo" %in% names(dados)) {
-    dados <- dados[grepl(cargo, dados$cargo, ignore.case = TRUE), ]
-  }
-  if (!is.null(nr_votavel)) {
-    dados <- dados[dados$nr_votavel == as.character(nr_votavel), ]
-  }
-  if (is.null(mapa)) {
-    saida <- dados |>
-      dplyr::group_by(cod_municipio_tse) |>
-      dplyr::summarise(valor = sum(as.numeric(votos), na.rm = TRUE),
-                       .groups = "drop") |>
-      dplyr::mutate(local = as.numeric(cod_municipio_tse))
-  } else {
-    agg <- .agregar_por_mapa(dados, mapa, "votos")
-    saida <- agg |> dplyr::rename(local = ibge)
-  }
-  saida |>
-    dplyr::mutate(periodo = as.Date(paste0(ano, "-12-31")),
-                  uf = toupper(uf)) |>
-    dplyr::select(local, periodo, valor, uf, dplyr::everything())
+  votos <- tse_votacao_municipio(ano = ano, uf = uf, cargo = cargo,
+                                 nr_votavel = nr_votavel, dest_dir = dest_dir)
+  if (is.null(mapa)) mapa <- .mapa_municipios_interno(sort(unique(votos$ano)), uf)
+  .agregar_por_mapa(votos, mapa, "votos",
+                    grupos = c("ibge", "periodo")) |>
+    dplyr::rename(local = ibge) |>
+    dplyr::mutate(uf = toupper(uf)) |>
+    dplyr::select(local, periodo, valor, uf)
 }
 
 #' Totais de secao por municipio (aptos, abstencoes, nulos, brancos)
@@ -94,8 +182,7 @@ tse_resultados_municipio <- \(ano = NULL, uf, cargo = NULL, nr_votavel = NULL,
 #' @return `data.frame` long: local, periodo, valor, uf, metrica.
 #' @examples
 #' \dontrun{
-#' tse_detalhe_municipio(2022, "DF", metrica = "abstencoes",
-#'                       mapa = mapa)
+#' tse_detalhe_municipio(2022, "DF", metrica = "abstencoes")
 #' }
 #' @export
 tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento",
@@ -105,27 +192,30 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
   metrica <- match.arg(metrica)
   anos <- if (is.null(ano)) tse_anos_disponiveis("todas") else
     sort(unique(as.integer(ano)))
-  dados <- data.table::rbindlist(lapply(anos, \(a)
-    tse_resultados_secao(a, uf, detalhe = TRUE, dest_dir = dest_dir)),
-    fill = TRUE)
-  if (is.null(mapa)) mapa <- .mapa_municipios_interno(anos, uf)
-  if (!metrica %in% names(dados)) {
-    stop("tsebr: metrica '", metrica, "' ausente no detalhe ", ano,
-         " (colunas: ", paste(names(dados), collapse = ", "), ")")
+  puxar <- \(a) {
+    message("tsebr: detalhe_votacao_secao ", a)
+    d <- tse_resultados_secao(a, uf, detalhe = TRUE, dest_dir = dest_dir)
+    if (!metrica %in% names(d)) {
+      stop("tsebr: metrica '", metrica, "' ausente no detalhe ", a,
+           " (colunas: ", paste(names(d), collapse = ", "), ")")
+    }
+    mantidas <- intersect(c("uf", "cod_municipio_tse"), names(d))
+    agg <- d |>
+      dplyr::select(dplyr::all_of(c(mantidas, metrica))) |>
+      dplyr::mutate(valor = as.numeric(.data[[metrica]]),
+                    .keep = "unused") |>
+      dplyr::group_by(dplyr::across(dplyr::all_of(mantidas))) |>
+      dplyr::summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") |>
+      dplyr::mutate(ano = as.integer(a),
+                    periodo = as.Date(paste0(a, "-12-31")))
+    agg
   }
-  if (is.null(mapa)) {
-    saida <- dados |>
-      dplyr::group_by(cod_municipio_tse) |>
-      dplyr::summarise(valor = sum(as.numeric(.data[[metrica]]),
-                                   na.rm = TRUE), .groups = "drop") |>
-      dplyr::mutate(local = as.numeric(cod_municipio_tse))
-  } else {
-    saida <- .agregar_por_mapa(dados, mapa, metrica) |>
-      dplyr::rename(local = ibge)
-  }
-  saida |>
-    dplyr::mutate(periodo = as.Date(paste0(ano, "-12-31")),
-                  uf = toupper(uf), metrica = metrica) |>
+  dados <- data.table::rbindlist(lapply(anos, puxar), fill = TRUE)
+  if (is.null(mapa)) mapa <- .mapa_municipios_interno(sort(unique(dados$ano)), uf)
+  .agregar_por_mapa(dados, mapa, "valor",
+                    grupos = c("ibge", "periodo")) |>
+    dplyr::rename(local = ibge) |>
+    dplyr::mutate(uf = toupper(uf), metrica = metrica) |>
     dplyr::select(local, periodo, valor, uf, metrica)
 }
 
@@ -151,10 +241,14 @@ tse_prestacao_uf <- \(ano = NULL, tipo = c("receitas", "despesas"),
   tipo <- match.arg(tipo)
   anos <- if (is.null(ano)) tse_anos_disponiveis("todas") else
     sort(unique(as.integer(ano)))
-  dados <- data.table::rbindlist(lapply(anos, \(a)
-    tse_prestacao(a, tipo = tipo, dest_dir = dest_dir)), fill = TRUE)
+  puxar <- \(a) {
+    d <- tse_prestacao(a, tipo = tipo, dest_dir = dest_dir)
+    d$ano <- as.integer(a)
+    d
+  }
+  dados <- data.table::rbindlist(lapply(anos, puxar), fill = TRUE)
   dados |>
-    dplyr::group_by(uf) |>
+    dplyr::group_by(uf, ano) |>
     dplyr::summarise(valor = sum(as.numeric(valor), na.rm = TRUE),
                      .groups = "drop") |>
     dplyr::mutate(local = as.numeric(.uf_para_ibge(uf)),
