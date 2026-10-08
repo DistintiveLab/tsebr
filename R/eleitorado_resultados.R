@@ -30,15 +30,12 @@
 #' @export
 tse_resultados_secao <- \(ano, uf, detalhe = FALSE, dest_dir = NULL) {
   assunto <- if (detalhe) "detalhe_votacao_secao" else "votacao_secao"
+  arquivo <- sprintf("%s_%s.zip", assunto, ano)
+  zip <- tse_download(.tse_cdn_url(ano, assunto, arquivo), dest_dir)
+  dados <- conformar(tse_read(zip), tse_layouts()[[assunto]])
   ufs <- .tse_ufs(uf)
-  puxar <- \(sg) {
-    arquivo <- sprintf("%s_%s_%s.zip", assunto, ano, sg)
-    zip <- tse_download(.tse_cdn_url(ano, assunto, arquivo), dest_dir)
-    conformar(tse_read(zip), tse_layouts()[[assunto]])
-  }
-  if (length(ufs) == 1L) return(puxar(ufs))
-  data.table::rbindlist(lapply(ufs, puxar), fill = TRUE) |>
-    tibble::as_tibble()
+  if (length(ufs) < 5L) dados <- dados[toupper(dados$sg_uf) %in% ufs, ]
+  dados
 }
 
 #' Perfil do eleitorado por secao eleitoral
