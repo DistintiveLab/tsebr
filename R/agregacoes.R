@@ -231,10 +231,10 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
   ## metricas do detalhe (aptos/abstencoes/...) repetem em cada cargo
   ## da mesma secao-turno: deduplicar ANTES de somar, senao o
   ## municipio fica superestimado
-  agregar_detalhe <- \(d, a) {
+  agregar_detalhe <- \(d, a, metricas = metrica) {
     chave_secao <- intersect(c("uf", "cod_municipio_tse", "zona",
                                "secao", "turno"), names(d))
-    data.table::rbindlist(lapply(metrica, \(m) {
+    data.table::rbindlist(lapply(metricas, \(m) {
       if (!m %in% names(d)) {
         stop("tsebr: metrica '", m, "' ausente no detalhe ", a,
              " (colunas: ", paste(names(d), collapse = ", "), ")")
@@ -255,8 +255,23 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
   }
   puxar <- \(a) {
     ## 2026+: detalhe por secao nao sai como zip; o boletim de urna
-    ## WEB (bweb) traz aptos/comparecimento/abstencoes por UF
+    ## WEB (bweb) traz aptos/comparecimento/abstencoes por UF —
+    ## NAO tem nulos/brancos: esses sao pulados com aviso em vez de
+    ## abortar a carga inteira
     if (a >= 2026) {
+      metricas_ok <- intersect(metrica,
+                               c("aptos", "comparecimento", "abstencoes"))
+      ausentes <- setdiff(metrica, metricas_ok)
+      if (length(ausentes)) {
+        warning("tsebr: bweb de ", a, " nao publica ",
+                paste(ausentes, collapse = ", "), "; trazendo apenas ",
+                paste(metricas_ok, collapse = ", "))
+      }
+      if (!length(metricas_ok)) {
+        stop("tsebr: nenhuma das metricas pedidas (",
+             paste(metrica, collapse = ", "),
+             ") existe no bweb de ", a)
+      }
       ufs_a <- setdiff(.tse_ufs(uf), "ZZ")
       partes <- Filter(Negate(is.null), lapply(ufs_a, \(sg) {
         message("tsebr: boletim de urna WEB ", a, " ", sg, " (detalhe)")
@@ -268,7 +283,7 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
                         return(NULL)
                       })
         if (is.null(b)) return(NULL)
-        agregar_detalhe(b, a)
+        agregar_detalhe(b, a, metricas_ok)
       }))
       dados <- data.table::rbindlist(partes, fill = TRUE)
       if (!nrow(dados)) return(NULL)
