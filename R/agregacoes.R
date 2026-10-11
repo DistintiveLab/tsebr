@@ -58,6 +58,16 @@
     dplyr::filter(!is.na(ibge))
 }
 
+#' Erro e de arquivo ausente no CDN (404) e nao de leitura/corrompido?
+#'
+#' Anos sem publicacao (ex.: detalhe/votacao de 2026, BR pre-2018)
+#' devem pular o ano com aviso; falhas de hash/parse seguem fatais.
+#' @keywords internal
+.arquivo_ausente <- \(e) {
+  grepl("404|Not Found|cannot open URL|falha ao baixar",
+        conditionMessage(e), ignore.case = TRUE)
+}
+
 #' Votos por municipio, turno, cargo e votavel
 #'
 #' Agrega `votacao_secao` por municipio TSE x turno x cargo x
@@ -114,24 +124,39 @@ tse_votacao_municipio <- \(ano = NULL, uf, cargo = NULL, nr_votavel = NULL,
   }
   puxar_uf <- \(a, sg) {
     message("tsebr: votacao_secao ", a, " ", sg)
-    d <- tse_resultados_secao(a, sg, detalhe = FALSE, dest_dir = dest_dir)
+    d <- tryCatch(
+      tse_resultados_secao(a, sg, detalhe = FALSE, dest_dir = dest_dir),
+      error = \(e) {
+        if (!.arquivo_ausente(e)) stop(e)
+        warning("tsebr: votacao_secao ", a, " ", sg,
+                " indisponivel no CDN; pulando")
+        return(NULL)
+      })
     agregar(d, a)
   }
-  ## presidente (2018+): zip BR nacional, lido uma vez por ano. A
-  ## falha aqui e fatal (sem o BR o presidente some da serie)
+  ## presidente (2018+): zip BR nacional, lido uma vez por ano; antes
+  ## de 2018 nao existe (votos presidenciais vem nos zips por UF)
   puxar_br <- \(a) {
     message("tsebr: votacao_secao ", a, " BR (presidente)")
     d <- tryCatch(tse_resultados_secao_br(a, ufs, dest_dir),
                   error = \(e) {
-                    stop("tsebr: falha ao ler o zip BR (presidente) de ", a,
-                         " — sem ele a votacao para presidente nao entra: ",
-                         conditionMessage(e))
+                    if (!.arquivo_ausente(e))
+                      stop("tsebr: falha ao ler o zip BR (presidente) de ",
+                           a, ": ", conditionMessage(e))
+                    warning("tsebr: sem zip BR (presidente) para ", a,
+                            "; presidente entra so pelos zips por UF")
+                    return(NULL)
                   })
+    if (is.null(d)) return(NULL)
     agregar(d, a)
   }
   chunks <- Filter(Negate(is.null), unlist(
     lapply(anos, \(a) c(lapply(ufs, \(sg) puxar_uf(a, sg)), list(puxar_br(a)))),
     recursive = FALSE))
+  if (!length(chunks)) {
+    stop("tsebr: nenhum arquivo de votacao_secao disponivel para ",
+         paste(anos, collapse = ", "))
+  }
   data.table::rbindlist(chunks, fill = TRUE) |>
     tibble::as_tibble()
 }
@@ -194,7 +219,15 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
     sort(unique(as.integer(ano)))
   puxar <- \(a) {
     message("tsebr: detalhe_votacao_secao ", a)
-    d <- tse_resultados_secao(a, uf, detalhe = TRUE, dest_dir = dest_dir)
+    d <- tryCatch(
+      tse_resultados_secao(a, uf, detalhe = TRUE, dest_dir = dest_dir),
+      error = \(e) {
+        if (!.arquivo_ausente(e)) stop(e)
+        warning("tsebr: detalhe_votacao_secao ", a,
+                " indisponivel no CDN; pulando")
+        return(NULL)
+      })
+    if (is.null(d)) return(NULL)
     if (!metrica %in% names(d)) {
       stop("tsebr: metrica '", metrica, "' ausente no detalhe ", a,
            " (colunas: ", paste(names(d), collapse = ", "), ")")
@@ -210,7 +243,12 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
                     periodo = as.Date(paste0(a, "-12-31")))
     agg
   }
-  dados <- data.table::rbindlist(lapply(anos, puxar), fill = TRUE)
+  dados <- data.table::rbindlist(Filter(Negate(is.null), lapply(anos, puxar)),
+                                  fill = TRUE)
+  if (!nrow(dados)) {
+    stop("tsebr: nenhum arquivo de detalhe_votacao_secao disponivel para ",
+         paste(anos, collapse = ", "))
+  }
   if (is.null(mapa)) mapa <- .mapa_municipios_interno(sort(unique(dados$ano)), uf)
   .agregar_por_mapa(dados, mapa, "valor",
                     grupos = c("ibge", "periodo")) |>
