@@ -270,3 +270,26 @@ tse_prestacao_uf <- \(ano = NULL, tipo = c("receitas", "despesas"),
   ano_max <- max(anos, na.rm = TRUE)
   tse_municipios(ano_max, con = con, uf = uf)
 }
+
+#' Mapa TSE x IBGE pela conexao padrao do DW (env vars)
+#'
+#' Encapsula [.mapa_municipios_interno()]: abre a conexao pelo
+#' `.Renviron` (`user`/`password`/`host`/`dbname` do banco com a
+#' tabela `local` do beep) e devolve o mapa
+#' `cod_municipio_tse -> geoloc_id (IBGE 7d)` para o ano mais
+#' recente pedido. Uso tipico: alimentar o `mapa` de consultas
+#' rapidas do tsesqlr no painel beep.
+#'
+#' @param ano Ano eleitoral ou vetor (usa o maximo como referencia).
+#' @param uf Sigla da UF ou "all".
+#' @return `data.frame` com cod_municipio_tse, municipio, uf,
+#'   geoloc_id e flag empate.
+#' @examples
+#' \dontrun{
+#' mapa <- tse_mapa_municipios(2026, "DF")
+#' }
+#' @export
+tse_mapa_municipios <- \(ano, uf) {
+  anos <- sort(unique(as.integer(ano)))
+  .mapa_municipios_interno(anos, uf)
+}
