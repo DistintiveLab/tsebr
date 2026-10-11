@@ -232,16 +232,22 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
       stop("tsebr: metrica '", metrica, "' ausente no detalhe ", a,
            " (colunas: ", paste(names(d), collapse = ", "), ")")
     }
-    mantidas <- intersect(c("uf", "cod_municipio_tse"), names(d))
-    agg <- d |>
-      dplyr::select(dplyr::all_of(c(mantidas, metrica))) |>
+    ## metricas do detalhe (aptos/abstencoes/...) repetem em cada cargo
+    ## da mesma secao-turno: deduplicar por (uf, cod, zona, secao,
+    ## turno) ANTES de somar, senao o municipio fica superestimado
+    chave_secao <- intersect(c("uf", "cod_municipio_tse", "zona",
+                               "secao", "turno"), names(d))
+    d |>
+      dplyr::select(dplyr::all_of(c(chave_secao, metrica))) |>
       dplyr::mutate(valor = as.numeric(.data[[metrica]]),
                     .keep = "unused") |>
-      dplyr::group_by(dplyr::across(dplyr::all_of(mantidas))) |>
+      dplyr::group_by(dplyr::across(dplyr::all_of(chave_secao))) |>
+      dplyr::summarise(valor = dplyr::first(valor), .groups = "drop") |>
+      dplyr::group_by(dplyr::across(
+        dplyr::all_of(intersect(c("uf", "cod_municipio_tse"), names(d))))) |>
       dplyr::summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") |>
       dplyr::mutate(ano = as.integer(a),
                     periodo = as.Date(paste0(a, "-12-31")))
-    agg
   }
   dados <- data.table::rbindlist(Filter(Negate(is.null), lapply(anos, puxar)),
                                   fill = TRUE)

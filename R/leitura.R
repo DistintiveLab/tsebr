@@ -95,6 +95,7 @@ tse_layouts <- \() {
       "^DS_CARGO$" = "cargo", "^NM_VOTAVEL$" = "nm_votavel"),
     detalhe_votacao_secao = c(
       "^SG_UF$" = "uf", "^CD_MUNICIPIO$" = "cod_municipio_tse",
+      "^NM_MUNICIPIO$" = "municipio", "^NR_TURNO$" = "turno",
       "^NR_ZONA$" = "zona", "^NR_SECAO$" = "secao",
       "^QT_APTOS$" = "aptos", "^QT_COMPARECIMENTO$" = "comparecimento",
       "^QT_ABSTENCOES$" = "abstencoes",

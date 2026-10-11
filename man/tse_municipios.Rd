@@ -4,28 +4,33 @@
 \alias{tse_municipios}
 \title{Correspondencia municipios TSE x IBGE}
 \usage{
-tse_municipios(ano, con = NULL, uf = NULL)
+tse_municipios(ano, con = NULL, uf = NULL, dest_dir = NULL)
 }
 \arguments{
-\item{ano}{Ano eleitoral de referencia da candidaturas.}
+\item{ano}{Ano eleitoral de referencia.}
 
 \item{con}{Conexao DBI com banco que tenha a tabela municipal
 do IBGE (schema beep: \code{local} com \code{geoloc_id} 7 digitos e
 \code{local_name}); sem con, devolve apenas o lado TSE.}
 
 \item{uf}{Sigla para reduzir volume.}
+
+\item{dest_dir}{Diretorio de cache dos arquivos do TSE.}
 }
 \value{
 \code{data.frame} com cod_municipio_tse, municipio, uf e,
 quando con informado, geoloc_id (IBGE) e flag \code{empate}.
 }
 \description{
-Os codigos de municipio do TSE (CD_MUNICIPIO/SG_UE) NAO sao
-os do IBGE. Extrai a tabela de correspondencia a partir de
-\code{consulta_cand} (codigo TSE + nome + UF) e cruza com a base
-municipal do IBGE por nome normalizado + UF. Nao resolve
-empates automaticamente: nomes repetidos na mesma UF saem
-marcados para revisao.
+Os codigos de municipio do TSE (CD_MUNICIPIO) NAO sao os do IBGE.
+Extrai o lado TSE (codigo + nome + UF) dos proprios arquivos de
+votacao e cruza com a base municipal do IBGE por nome normalizado
+\itemize{
+\item UF. O \code{consulta_cand} nao serve: em anos de eleicao federal o
+SG_UE traz a sigla da UF, sem codigo municipal. Nao resolve empates
+automaticamente: nomes repetidos na mesma UF saem marcados para
+revisao.
+}
 }
 \examples{
 \dontrun{

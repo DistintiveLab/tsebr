@@ -108,18 +108,20 @@ tse_prestacao <- \(ano, tipo = c("receitas", "despesas"),
 
 #' Correspondencia municipios TSE x IBGE
 #'
-#' Os codigos de municipio do TSE (CD_MUNICIPIO/SG_UE) NAO sao
-#' os do IBGE. Extrai a tabela de correspondencia a partir de
-#' `consulta_cand` (codigo TSE + nome + UF) e cruza com a base
-#' municipal do IBGE por nome normalizado + UF. Nao resolve
-#' empates automaticamente: nomes repetidos na mesma UF saem
-#' marcados para revisao.
+#' Os codigos de municipio do TSE (CD_MUNICIPIO) NAO sao os do IBGE.
+#' Extrai o lado TSE (codigo + nome + UF) dos proprios arquivos de
+#' votacao e cruza com a base municipal do IBGE por nome normalizado
+#' + UF. O `consulta_cand` nao serve: em anos de eleicao federal o
+#' SG_UE traz a sigla da UF, sem codigo municipal. Nao resolve empates
+#' automaticamente: nomes repetidos na mesma UF saem marcados para
+#' revisao.
 #'
-#' @param ano Ano eleitoral de referencia da candidaturas.
+#' @param ano Ano eleitoral de referencia.
 #' @param con Conexao DBI com banco que tenha a tabela municipal
 #'   do IBGE (schema beep: `local` com `geoloc_id` 7 digitos e
 #'   `local_name`); sem con, devolve apenas o lado TSE.
 #' @param uf Sigla para reduzir volume.
+#' @param dest_dir Diretorio de cache dos arquivos do TSE.
 #' @return `data.frame` com cod_municipio_tse, municipio, uf e,
 #'   quando con informado, geoloc_id (IBGE) e flag `empate`.
 #' @examples
@@ -127,20 +129,21 @@ tse_prestacao <- \(ano, tipo = c("receitas", "despesas"),
 #' m <- tse_municipios(2026, uf = "DF")
 #' }
 #' @export
-tse_municipios <- \(ano, con = NULL, uf = NULL) {
-  cand <- tse_candidaturas(ano, uf = uf %||% "all")
+tse_municipios <- \(ano, con = NULL, uf = NULL, dest_dir = NULL) {
+  ## lado TSE dos arquivos de votacao (detalhe nacional tem todos os
+  ## municipios de uma vez). O consulta_cand em eleicoes federais so
+  ## traz SG_UE estadual ("AC", "DF"): o mapa resultante nao casava
+  ## com nenhum CD_MUNICIPIO e tudo colapsava num municipio so
+  vot <- tse_resultados_secao(max(as.integer(ano)), uf %||% "all",
+                              detalhe = TRUE, dest_dir = dest_dir)
   lado_tse <- dplyr::distinct(
-    cand,
+    vot,
     cod_municipio_tse = as.character(cod_municipio_tse),
     municipio = as.character(municipio),
     uf = as.character(uf)) |>
     ## BR (candidaturas nacionais) e ZZ (exterior) nao sao
     ## municipios: fora do mapa TSE x IBGE
-    dplyr::filter(!uf %in% c("BR", "ZZ")) |>
-    ## DF: o consulta_cand traz SG_UE="DF", mas os arquivos de
-    ## votacao usam o codigo TSE de municipio de Brasilia (97012)
-    dplyr::mutate(cod_municipio_tse = ifelse(
-      cod_municipio_tse == "DF", "97012", cod_municipio_tse))
+    dplyr::filter(!uf %in% c("BR", "ZZ"))
   if (is.null(con)) return(lado_tse)
   ibge <- DBI::dbGetQuery(con, paste(
     "SELECT geoloc_id, local_name FROM local",
