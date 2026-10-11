@@ -28,12 +28,7 @@ tse_boletins <- \(ano = 2026, uf, dest_dir = NULL) {
     stop("tse_boletins: dataset resultados-", ano,
          "-boletim-de-urna nao encontrado no CKAN")
   }
-  recs <- tse_show(ds$name[1], padrao = sprintf("_1t_%s_", uf))
-  if (!nrow(recs)) {
-    ## fallback: padrao sem o turno
-    recs <- tse_show(ds$name[1], padrao = uf)
-    recs <- recs[!grepl("sha512", recs$url), ]
-  }
+  recs <- .recurso_bweb(tse_show(ds$name[1]), uf)
   if (!nrow(recs)) {
     stop("tse_boletins: sem bweb para ", uf, " em ", ds$name[1])
   }
@@ -59,5 +54,42 @@ tse_boletins <- \(ano = 2026, uf, dest_dir = NULL) {
 
   ## adiciona periodo
   dados$periodo <- as.Date(paste0(ano, "-10-04"))
+
+  ## o estilo do nome do recurso no CKAN pode mudar de novo; o dado,
+  ## nao: aborta antes de devolver se a UF lida nao e a pedida (um
+  ## casamento errado ja gravou dados de AC no lugar de PR/RN/RO)
+  if ("uf" %in% names(dados)) {
+    ufs_lidas <- unique(toupper(dados$uf))
+    if (!identical(ufs_lidas, uf)) {
+      stop("tse_boletins: o recurso escolhido (", basename(url_zip),
+           ") trouxe uf = ", paste(ufs_lidas, collapse = ", "),
+           ", nao ", uf, " — casamento de recurso errado no CKAN")
+    }
+  }
   dados
+}
+
+#' Escolhe o recurso do bweb de uma UF entre os recursos do dataset
+#'
+#' O nome do recurso no CKAN muda de estilo entre ciclos: titulo
+#' (`"AC - Boletim de Urna - Primeiro turno - 05.10.2026"`) ou nome
+#' de arquivo (`"bweb_1t_AC_051020261403.zip"`). Um grep solto da
+#' sigla é armadilha: `PR` casa "**PR**imeiro turno", `RN` casa
+#' "U**rn**a" e `RO` casa "Primei**ro**" — e devolve o recurso da
+#' primeira UF do dataset (AC) para todas elas. A sigla só vale como
+#' pedaço delimitado por não-letra.
+#'
+#' @param recs Recursos de `tse_show()` (name, url).
+#' @param uf Sigla da UF (maiúscula).
+#' @return Subconjunto de `recs` da UF pedida (0 linhas se não achar).
+#' @keywords internal
+.recurso_bweb <- \(recs, uf) {
+  recs <- recs[!grepl("sha512", recs$url), ]
+  padrao <- sprintf("(^|[^A-Z])%s([^A-Z]|$)", uf)
+  hit <- recs[grepl(padrao, recs$name, ignore.case = TRUE), ]
+  if (nrow(hit) > 1) {
+    bol <- hit[grepl("boletim|bweb", hit$name, ignore.case = TRUE), ]
+    if (nrow(bol)) hit <- bol
+  }
+  hit
 }
