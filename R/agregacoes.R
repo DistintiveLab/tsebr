@@ -208,7 +208,11 @@ tse_resultados_municipio <- \(ano = NULL, uf, cargo = NULL, nr_votavel = NULL,
 #' abstencoes, votos_nulos ou votos_brancos.
 #'
 #' @inheritParams tse_resultados_municipio
-#' @param metrica Coluna do detalhe a agregar.
+#' @param metrica Coluna(s) do detalhe a agregar; vetor empilha uma
+#'   serie por metrica na mesma leitura (uso do tsesqlr).
+#' @param mapa `data.frame` com cod_municipio_tse e ibge; `FALSE`
+#'   devolve linhas por codigo TSE (cod_municipio_tse, ano, periodo,
+#'   valor, uf, metrica), sem mapear para IBGE.
 #' @return `data.frame` long: local, periodo, valor, uf, metrica.
 #' @examples
 #' \dontrun{
@@ -219,7 +223,9 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
                                                 "abstencoes", "votos_nulos",
                                                 "votos_brancos"),
                            mapa = NULL, dest_dir = NULL) {
-  metrica <- match.arg(metrica)
+  # vetor de metricas: o arquivo e lido UMA vez por ano/UF e cada
+  # metrica e agregada em cima da mesma leitura (empilhadas na saida)
+  metrica <- match.arg(metrica, several.ok = TRUE)
   anos <- if (is.null(ano)) tse_anos_disponiveis("todas") else
     sort(unique(as.integer(ano)))
   ## metricas do detalhe (aptos/abstencoes/...) repetem em cada cargo
@@ -228,17 +234,24 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
   agregar_detalhe <- \(d, a) {
     chave_secao <- intersect(c("uf", "cod_municipio_tse", "zona",
                                "secao", "turno"), names(d))
-    d |>
-      dplyr::select(dplyr::all_of(c(chave_secao, metrica))) |>
-      dplyr::mutate(valor = as.numeric(.data[[metrica]]),
-                    .keep = "unused") |>
-      dplyr::group_by(dplyr::across(dplyr::all_of(chave_secao))) |>
-      dplyr::summarise(valor = dplyr::first(valor), .groups = "drop") |>
-      dplyr::group_by(dplyr::across(
-        dplyr::all_of(intersect(c("uf", "cod_municipio_tse"), names(d))))) |>
-      dplyr::summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") |>
-      dplyr::mutate(ano = as.integer(a),
-                    periodo = as.Date(paste0(a, "-12-31")))
+    data.table::rbindlist(lapply(metrica, \(m) {
+      if (!m %in% names(d)) {
+        stop("tsebr: metrica '", m, "' ausente no detalhe ", a,
+             " (colunas: ", paste(names(d), collapse = ", "), ")")
+      }
+      d |>
+        dplyr::select(dplyr::all_of(c(chave_secao, m))) |>
+        dplyr::mutate(valor = as.numeric(.data[[m]]),
+                      .keep = "unused") |>
+        dplyr::group_by(dplyr::across(dplyr::all_of(chave_secao))) |>
+        dplyr::summarise(valor = dplyr::first(valor), .groups = "drop") |>
+        dplyr::group_by(dplyr::across(
+          dplyr::all_of(intersect(c("uf", "cod_municipio_tse"), names(d))))) |>
+        dplyr::summarise(valor = sum(valor, na.rm = TRUE),
+                         .groups = "drop") |>
+        dplyr::mutate(metrica = m, ano = as.integer(a),
+                      periodo = as.Date(paste0(a, "-12-31")))
+    }), fill = TRUE)
   }
   puxar <- \(a) {
     ## 2026+: detalhe por secao nao sai como zip; o boletim de urna
@@ -255,12 +268,6 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
                         return(NULL)
                       })
         if (is.null(b)) return(NULL)
-        if (!metrica %in% names(b)) {
-          stop("tsebr: metrica '", metrica, "' ausente no bweb ", a,
-               " ", sg, " — bweb so tem aptos/comparecimento/",
-               "abstencoes (colunas: ",
-               paste(names(b), collapse = ", "), ")")
-        }
         agregar_detalhe(b, a)
       }))
       dados <- data.table::rbindlist(partes, fill = TRUE)
@@ -277,10 +284,6 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
         return(NULL)
       })
     if (is.null(d)) return(NULL)
-    if (!metrica %in% names(d)) {
-      stop("tsebr: metrica '", metrica, "' ausente no detalhe ", a,
-           " (colunas: ", paste(names(d), collapse = ", "), ")")
-    }
     agregar_detalhe(d, a)
   }
   dados <- data.table::rbindlist(Filter(Negate(is.null), lapply(anos, puxar)),
@@ -289,11 +292,18 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
     stop("tsebr: nenhum arquivo de detalhe_votacao_secao disponivel para ",
          paste(anos, collapse = ", "))
   }
+  if (identical(mapa, FALSE)) {
+    # sem mapear: linhas por codigo TSE (uso do tsesqlr, que grava
+    # cod_municipio_tse e traduz na consulta)
+    return(dados |>
+      dplyr::mutate(uf = toupper(uf)) |>
+      dplyr::select(cod_municipio_tse, ano, periodo, valor, uf, metrica))
+  }
   if (is.null(mapa)) mapa <- .mapa_municipios_interno(sort(unique(dados$ano)), uf)
   .agregar_por_mapa(dados, mapa, "valor",
-                    grupos = c("ibge", "periodo")) |>
+                    grupos = c("ibge", "periodo", "metrica")) |>
     dplyr::rename(local = ibge) |>
-    dplyr::mutate(uf = toupper(uf), metrica = metrica) |>
+    dplyr::mutate(uf = toupper(uf)) |>
     dplyr::select(local, periodo, valor, uf, metrica)
 }
 

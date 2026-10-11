@@ -17,11 +17,12 @@ tse_detalhe_municipio(
 
 \item{uf}{Sigla da UF.}
 
-\item{metrica}{Coluna do detalhe a agregar.}
+\item{metrica}{Coluna(s) do detalhe a agregar; vetor empilha uma
+serie por metrica na mesma leitura (uso do tsesqlr).}
 
-\item{mapa}{\code{data.frame} com cod_municipio_tse e ibge
-(7 digitos); sem ele, \code{local} sai como codigo TSE (nao
-encaixa no DW beep).}
+\item{mapa}{\code{data.frame} com cod_municipio_tse e ibge; \code{FALSE}
+devolve linhas por codigo TSE (cod_municipio_tse, ano, periodo,
+valor, uf, metrica), sem mapear para IBGE.}
 
 \item{dest_dir}{Diretorio de cache do download.}
 }
