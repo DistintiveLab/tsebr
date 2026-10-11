@@ -47,7 +47,7 @@ tse_boletins <- \(ano = 2026, uf, dest_dir = NULL) {
   renomear <- c(
     "ANO_ELEICAO" = "ano", "SG_UF" = "uf",
     "CD_MUNICIPIO" = "cod_municipio_tse", "NM_MUNICIPIO" = "municipio",
-    "NR_ZONA" = "zona", "NR_SECAO" = "secao",
+    "NR_ZONA" = "zona", "NR_SECAO" = "secao", "NR_TURNO" = "turno",
     "DS_CARGO_PERGUNTA" = "cargo",
     "NR_VOTAVEL" = "nr_votavel", "NM_VOTAVEL" = "nm_votavel",
     "QT_VOTOS" = "votos",

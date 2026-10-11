@@ -125,18 +125,23 @@ tse_votacao_municipio <- \(ano = NULL, uf, cargo = NULL, nr_votavel = NULL,
   puxar_uf <- \(a, sg) {
     message("tsebr: votacao_secao ", a, " ", sg)
     d <- tryCatch(
-      tse_resultados_secao(a, sg, detalhe = FALSE, dest_dir = dest_dir),
+      ## 2026+: sem zips de votacao_secao; o boletim de urna WEB
+      ## (bweb) e a fonte oficial
+      if (a >= 2026) tse_boletins(a, sg, dest_dir = dest_dir) else
+        tse_resultados_secao(a, sg, detalhe = FALSE, dest_dir = dest_dir),
       error = \(e) {
         if (!.arquivo_ausente(e)) stop(e)
         warning("tsebr: votacao_secao ", a, " ", sg,
                 " indisponivel no CDN; pulando")
         return(NULL)
       })
+    if (is.null(d)) return(NULL)
     agregar(d, a)
   }
-  ## presidente (2018+): zip BR nacional, lido uma vez por ano; antes
-  ## de 2018 nao existe (votos presidenciais vem nos zips por UF)
+  ## presidente (2018..2022): zip BR nacional, lido uma vez por ano;
+  ## antes de 2018 nao existe e 2026+ vem no bweb por UF
   puxar_br <- \(a) {
+    if (a >= 2026) return(NULL)
     message("tsebr: votacao_secao ", a, " BR (presidente)")
     d <- tryCatch(tse_resultados_secao_br(a, ufs, dest_dir),
                   error = \(e) {
@@ -217,7 +222,51 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
   metrica <- match.arg(metrica)
   anos <- if (is.null(ano)) tse_anos_disponiveis("todas") else
     sort(unique(as.integer(ano)))
+  ## metricas do detalhe (aptos/abstencoes/...) repetem em cada cargo
+  ## da mesma secao-turno: deduplicar ANTES de somar, senao o
+  ## municipio fica superestimado
+  agregar_detalhe <- \(d, a) {
+    chave_secao <- intersect(c("uf", "cod_municipio_tse", "zona",
+                               "secao", "turno"), names(d))
+    d |>
+      dplyr::select(dplyr::all_of(c(chave_secao, metrica))) |>
+      dplyr::mutate(valor = as.numeric(.data[[metrica]]),
+                    .keep = "unused") |>
+      dplyr::group_by(dplyr::across(dplyr::all_of(chave_secao))) |>
+      dplyr::summarise(valor = dplyr::first(valor), .groups = "drop") |>
+      dplyr::group_by(dplyr::across(
+        dplyr::all_of(intersect(c("uf", "cod_municipio_tse"), names(d))))) |>
+      dplyr::summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") |>
+      dplyr::mutate(ano = as.integer(a),
+                    periodo = as.Date(paste0(a, "-12-31")))
+  }
   puxar <- \(a) {
+    ## 2026+: detalhe por secao nao sai como zip; o boletim de urna
+    ## WEB (bweb) traz aptos/comparecimento/abstencoes por UF
+    if (a >= 2026) {
+      ufs_a <- setdiff(.tse_ufs(uf), "ZZ")
+      partes <- Filter(Negate(is.null), lapply(ufs_a, \(sg) {
+        message("tsebr: boletim de urna WEB ", a, " ", sg, " (detalhe)")
+        b <- tryCatch(tse_boletins(a, sg, dest_dir = dest_dir),
+                      error = \(e) {
+                        if (!.arquivo_ausente(e)) stop(e)
+                        warning("tsebr: bweb ", a, " ", sg,
+                                " indisponivel; pulando")
+                        return(NULL)
+                      })
+        if (is.null(b)) return(NULL)
+        if (!metrica %in% names(b)) {
+          stop("tsebr: metrica '", metrica, "' ausente no bweb ", a,
+               " ", sg, " — bweb so tem aptos/comparecimento/",
+               "abstencoes (colunas: ",
+               paste(names(b), collapse = ", "), ")")
+        }
+        agregar_detalhe(b, a)
+      }))
+      dados <- data.table::rbindlist(partes, fill = TRUE)
+      if (!nrow(dados)) return(NULL)
+      return(dados)
+    }
     message("tsebr: detalhe_votacao_secao ", a)
     d <- tryCatch(
       tse_resultados_secao(a, uf, detalhe = TRUE, dest_dir = dest_dir),
@@ -232,22 +281,7 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
       stop("tsebr: metrica '", metrica, "' ausente no detalhe ", a,
            " (colunas: ", paste(names(d), collapse = ", "), ")")
     }
-    ## metricas do detalhe (aptos/abstencoes/...) repetem em cada cargo
-    ## da mesma secao-turno: deduplicar por (uf, cod, zona, secao,
-    ## turno) ANTES de somar, senao o municipio fica superestimado
-    chave_secao <- intersect(c("uf", "cod_municipio_tse", "zona",
-                               "secao", "turno"), names(d))
-    d |>
-      dplyr::select(dplyr::all_of(c(chave_secao, metrica))) |>
-      dplyr::mutate(valor = as.numeric(.data[[metrica]]),
-                    .keep = "unused") |>
-      dplyr::group_by(dplyr::across(dplyr::all_of(chave_secao))) |>
-      dplyr::summarise(valor = dplyr::first(valor), .groups = "drop") |>
-      dplyr::group_by(dplyr::across(
-        dplyr::all_of(intersect(c("uf", "cod_municipio_tse"), names(d))))) |>
-      dplyr::summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") |>
-      dplyr::mutate(ano = as.integer(a),
-                    periodo = as.Date(paste0(a, "-12-31")))
+    agregar_detalhe(d, a)
   }
   dados <- data.table::rbindlist(Filter(Negate(is.null), lapply(anos, puxar)),
                                   fill = TRUE)
@@ -311,8 +345,18 @@ tse_prestacao_uf <- \(ano = NULL, tipo = c("receitas", "despesas"),
                         host = Sys.getenv("host", "127.0.0.1"),
                         dbname = Sys.getenv("dbname", "beepdb"))
   on.exit(DBI::dbDisconnect(con), add = TRUE)
-  ano_max <- max(anos, na.rm = TRUE)
-  tse_municipios(ano_max, con = con, uf = uf)
+  ## o lado TSE do mapa vem dos arquivos de votacao do ano pedido;
+  ## quando o arquivo do ano nao existe (ex.: detalhe de 2026), cai
+  ## para o ano anterior (codigos de municipio sao estaveis)
+  for (a in rev(sort(unique(c(as.integer(anos), 2022L))))) {
+    m <- tryCatch(tse_municipios(a, con = con, uf = uf),
+                  error = \(e) {
+                    if (.arquivo_ausente(e)) NULL else stop(e)
+                  })
+    if (!is.null(m)) return(m)
+  }
+  stop("tsebr: sem mapa TSE x IBGE para os anos ",
+       paste(anos, collapse = ", "))
 }
 
 #' Mapa TSE x IBGE pela conexao padrao do DW (env vars)
