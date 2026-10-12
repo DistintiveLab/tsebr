@@ -4,13 +4,18 @@
 \alias{tse_read}
 \title{Leitura dos CSVs eleitorais do TSE}
 \usage{
-tse_read(arquivo, max_rows = NULL)
+tse_read(arquivo, max_rows = NULL, colunas = NULL)
 }
 \arguments{
 \item{arquivo}{Caminho de um \code{.zip} (com um CSV dentro) ou de
 um \code{.csv} direto; ver \code{tse_download()}.}
 
 \item{max_rows}{Limite de linhas para amostragem (NULL = tudo).}
+
+\item{colunas}{Nomes das colunas a manter (NULL = todas). Colunas
+pedidas que nao existam no arquivo sao ignoradas — a leitura
+selectiva existe para os CSVs de GBs do bweb: ler so as chaves
+corta a memoria de varios GiB para uma fracao.}
 }
 \value{
 \code{data.table} com o conteudo bruto (colunas como no

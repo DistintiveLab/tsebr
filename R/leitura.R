@@ -9,6 +9,10 @@
 #' @param arquivo Caminho de um `.zip` (com um CSV dentro) ou de
 #'   um `.csv` direto; ver `tse_download()`.
 #' @param max_rows Limite de linhas para amostragem (NULL = tudo).
+#' @param colunas Nomes das colunas a manter (NULL = todas). Colunas
+#'   pedidas que nao existam no arquivo sao ignoradas — a leitura
+#'   selectiva existe para os CSVs de GBs do bweb: ler so as chaves
+#'   corta a memoria de varios GiB para uma fracao.
 #' @return `data.table` com o conteudo bruto (colunas como no
 #'   arquivo, nomes originais em caixa alta).
 #' @examples
@@ -17,8 +21,21 @@
 #'   2026, "perfil_eleitor_secao", "perfil_eleitor_secao_2026_DF.zip")))
 #' }
 #' @export
-tse_read <- \(arquivo, max_rows = NULL) {
+tse_read <- \(arquivo, max_rows = NULL, colunas = NULL) {
   arquivo <- normalizePath(arquivo, mustWork = TRUE)
+  ler_um <- \(f) {
+    sel <- colunas
+    if (!is.null(sel)) {
+      cabecalho <- names(data.table::fread(
+        f, encoding = "Latin-1", dec = ",", sep = ";", nrows = 0L))
+      sel <- intersect(sel, cabecalho)
+      if (!length(sel)) sel <- NULL
+    }
+    data.table::fread(
+      f, encoding = "Latin-1", dec = ",", sep = "auto",
+      showProgress = FALSE, nrows = max_rows %||% -1L,
+      select = sel)
+  }
   if (tolower(tools::file_ext(arquivo)) == "zip") {
     pasta <- tempfile()
     dir.create(pasta)
@@ -37,17 +54,12 @@ tse_read <- \(arquivo, max_rows = NULL) {
     if (length(csvs) > 1) {
       espelho <- grepl("BRASIL", basename(csvs))
       if (any(espelho) && any(!espelho)) csvs <- csvs[!espelho]
-      partes <- lapply(csvs, \(f) data.table::fread(
-        f, encoding = "Latin-1", dec = ",", sep = "auto",
-        showProgress = FALSE, nrows = max_rows %||% -1L))
+      partes <- lapply(csvs, ler_um)
       return(data.table::rbindlist(partes, fill = TRUE))
     }
     arquivo <- csvs[1]
   }
-  dados <- data.table::fread(
-    arquivo, encoding = "Latin-1", dec = ",", sep = "auto",
-    showProgress = FALSE, nrows = max_rows %||% -1L)
-  dados
+  ler_um(arquivo)
 }
 
 #' Conforma colunas TSE por regex semanticos

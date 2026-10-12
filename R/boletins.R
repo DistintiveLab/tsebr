@@ -34,11 +34,10 @@ tse_boletins <- \(ano = 2026, uf, dest_dir = NULL) {
   }
   url_zip <- recs$url[1]
 
-  ## download + leitura (um CSV nacional por UF dentro do zip)
+  ## download + leitura (um CSV nacional por UF dentro do zip);
+  ## so as colunas-chave: o bweb de SP tem 8+ milhoes de linhas e a
+  ## leitura integral estoura a memoria do host
   zip <- tse_download(url_zip, dest_dir)
-  dados <- tse_read(zip)
-
-  ## renomeia colunas-chave
   renomear <- c(
     "ANO_ELEICAO" = "ano", "SG_UF" = "uf",
     "CD_MUNICIPIO" = "cod_municipio_tse", "NM_MUNICIPIO" = "municipio",
@@ -48,6 +47,7 @@ tse_boletins <- \(ano = 2026, uf, dest_dir = NULL) {
     "QT_VOTOS" = "votos",
     "QT_APTOS" = "aptos", "QT_COMPARECIMENTO" = "comparecimento",
     "QT_ABSTENCOES" = "abstencoes")
+  dados <- tse_read(zip, colunas = names(renomear))
   for (de in names(renomear)) {
     if (de %in% names(dados)) names(dados)[names(dados) == de] <- renomear[[de]]
   }
