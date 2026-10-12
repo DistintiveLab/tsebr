@@ -106,6 +106,51 @@ tse_prestacao <- \(ano, tipo = c("receitas", "despesas"),
   dados
 }
 
+#' Normalizacao de nome de municipio para o cruzamento TSE x IBGE
+#'
+#' Maiusculas, acentos transliterados, apostrofos e hifens viram
+#' espaco e espacos colapsam. O TSE grafa "OLHO D AGUA" onde o IBGE
+#' grafa "Olho-d'agua": sem essa passada, dezenas de municipios
+#' ficam sem correspondencia.
+#'
+#' @param x Vetor de nomes.
+#' @return Vetor de nomes normalizados.
+#' @keywords internal
+.norm_nome <- \(x) {
+  toupper(gsub("\\s+", " ", trimws(
+    gsub("[-']", " ", iconv(x, to = "ASCII//TRANSLIT")))))
+}
+
+#' Grafias equivalentes de municipios TSE x IBGE
+#'
+#' Nomes que divergem entre TSE e IBGE mesmo depois de
+#' [.norm_nome()]: chave = grafia TSE normalizada, valor = grafia
+#' IBGE normalizada. Acrescentar conforme achados.
+#'
+#' @return Vetor nomeado de equivalencias.
+#' @keywords internal
+.equivalentes_municipios <- \(...) {
+  c(
+    "DISTRITO FEDERAL" = "BRASILIA",
+    "EMBU" = "EMBU DAS ARTES",
+    "MOJI MIRIM" = "MOGI MIRIM",
+    "PARATI" = "PARATY",
+    "ALVORADA DO OESTE" = "ALVORADA D OESTE",
+    "AMPARO DE SAO FRANCISCO" = "AMPARO DO SAO FRANCISCO",
+    "AREZ" = "ARES",
+    "ASSU" = "ACU",
+    "BARAO DE MONTE ALTO" = "BARAO DO MONTE ALTO",
+    "BOA SAUDE" = "JANUARIO CICCO",
+    "CAMACA" = "CAMACAN",
+    "DONA EUSEBIA" = "DONA EUZEBIA",
+    "ELDORADO DOS CARAJAS" = "ELDORADO DO CARAJAS",
+    "ESPIGAO DO OESTE" = "ESPIGAO D OESTE",
+    "SANTA ISABEL DO PARA" = "SANTA IZABEL DO PARA",
+    "SANTO ANTONIO DO LEVERGER" = "SANTO ANTONIO DE LEVERGER",
+    "SAO LUIS DO PARAITINGA" = "SAO LUIZ DO PARAITINGA",
+    "SAO THOME DAS LETRAS" = "SAO TOME DAS LETRAS")
+}
+
 #' Correspondencia municipios TSE x IBGE
 #'
 #' Os codigos de municipio do TSE (CD_MUNICIPIO) NAO sao os do IBGE.
@@ -151,15 +196,8 @@ tse_municipios <- \(ano, con = NULL, uf = NULL, dest_dir = NULL) {
     ## zona de carga municipal: local_id 1..5571 (o 5571 e
     ## Brasilia!) — os estratos PNAD comecam em 5572
     "AND (local_id < 5572 OR local_id > 7087)"))
-  norm <- \(x) toupper(iconv(
-    gsub("\\s+", " ", trimws(x)), to = "ASCII//TRANSLIT"))
-  ## nomes que divergem entre TSE e IBGE (tabela do
-  ## crosswalk classico; acrescentar conforme achados)
-  equivalentes <- c(
-    "DISTRITO FEDERAL" = "BRASILIA",
-    "EMBU" = "EMBU DAS ARTES",
-    "MOJI MIRIM" = "MOGI MIRIM",
-    "PARATI" = "PARATY")
+  norm <- .norm_nome
+  equivalentes <- .equivalentes_municipios()
   lado_tse$nome_norm <- dplyr::recode(norm(lado_tse$municipio),
                                       !!!equivalentes)
   ibge$nome_norm <- norm(ibge$local_name)
