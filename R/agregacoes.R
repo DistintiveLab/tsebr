@@ -201,6 +201,27 @@ tse_resultados_municipio <- \(ano = NULL, uf, cargo = NULL, nr_votavel = NULL,
     dplyr::select(local, periodo, valor, uf)
 }
 
+#' Data de eleicao de um turno (domingos de outubro)
+#'
+#' Data canonica do turno: primeiro domingo de outubro para o turno 1
+#' e ultimo domingo de outubro para o turno 2 (Lei 9.504/97). Vetorizada
+#' em `turno`; `NA` conta como turno 1 e valores acima de 2 como 2.
+#' @param ano Ano da eleicao (inteiro escalar ou vetor).
+#' @param turno Numero do turno (1 ou 2), vetor do mesmo tamanho de `ano`.
+#' @return `Date` com a data de cada turno.
+#' @examples
+#' tse_periodo_eleicao(c(2022, 2022), c(1, 2))
+#' tse_periodo_eleicao(2026, 1)
+#' @export
+tse_periodo_eleicao <- \(ano, turno) {
+  turno <- as.integer(ifelse(is.na(turno), 1L, pmin(turno, 2L)))
+  d1 <- as.Date(paste0(ano, "-10-01"))
+  primeiro <- d1 + (7L - as.integer(format(d1, "%u"))) %% 7L
+  d31 <- as.Date(paste0(ano, "-10-31"))
+  ultimo <- d31 - as.integer(format(d31, "%u")) %% 7L
+  as.Date(ifelse(turno <= 1L, primeiro, ultimo), origin = "1970-01-01")
+}
+
 #' Totais de secao por municipio (aptos, abstencoes, nulos, brancos)
 #'
 #' Agrega `detalhe_votacao_secao` ao nivel municipal. `metrica`
@@ -211,9 +232,12 @@ tse_resultados_municipio <- \(ano = NULL, uf, cargo = NULL, nr_votavel = NULL,
 #' @param metrica Coluna(s) do detalhe a agregar; vetor empilha uma
 #'   serie por metrica na mesma leitura (uso do tsesqlr).
 #' @param mapa `data.frame` com cod_municipio_tse e ibge; `FALSE`
-#'   devolve linhas por codigo TSE (cod_municipio_tse, ano, periodo,
-#'   valor, uf, metrica), sem mapear para IBGE.
-#' @return `data.frame` long: local, periodo, valor, uf, metrica.
+#'   devolve linhas por codigo TSE (cod_municipio_tse, ano, turno,
+#'   periodo, valor, uf, metrica), sem mapear para IBGE.
+#' @return `data.frame` long: local, periodo, valor, uf, metrica e
+#'   turno quando o detalhe traz a coluna. Cada turno e um ponto
+#'   proprio: `periodo` cai no domingo da eleicao
+#'   ([tse_periodo_eleicao()]) em vez do 31/12 do ano.
 #' @examples
 #' \dontrun{
 #' tse_detalhe_municipio(2022, "DF", metrica = "abstencoes")
@@ -234,6 +258,7 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
   agregar_detalhe <- \(d, a, metricas = metrica) {
     chave_secao <- intersect(c("uf", "cod_municipio_tse", "zona",
                                "secao", "turno"), names(d))
+    grupos_mun <- intersect(c("uf", "cod_municipio_tse", "turno"), names(d))
     data.table::rbindlist(lapply(metricas, \(m) {
       if (!m %in% names(d)) {
         stop("tsebr: metrica '", m, "' ausente no detalhe ", a,
@@ -245,12 +270,15 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
                       .keep = "unused") |>
         dplyr::group_by(dplyr::across(dplyr::all_of(chave_secao))) |>
         dplyr::summarise(valor = dplyr::first(valor), .groups = "drop") |>
-        dplyr::group_by(dplyr::across(
-          dplyr::all_of(intersect(c("uf", "cod_municipio_tse"), names(d))))) |>
+        dplyr::group_by(dplyr::across(dplyr::all_of(grupos_mun))) |>
         dplyr::summarise(valor = sum(valor, na.rm = TRUE),
                          .groups = "drop") |>
         dplyr::mutate(metrica = m, ano = as.integer(a),
-                      periodo = as.Date(paste0(a, "-12-31")))
+                      periodo = if ("turno" %in% grupos_mun) {
+                        tse_periodo_eleicao(a, .data$turno)
+                      } else {
+                        as.Date(paste0(a, "-12-31"))
+                      })
     }), fill = TRUE)
   }
   puxar <- \(a) {
@@ -326,14 +354,17 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
     # cod_municipio_tse e traduz na consulta)
     return(dados |>
       dplyr::mutate(uf = toupper(uf)) |>
-      dplyr::select(cod_municipio_tse, ano, periodo, valor, uf, metrica))
+      dplyr::select(dplyr::any_of(
+        c("cod_municipio_tse", "ano", "turno", "periodo", "valor", "uf", "metrica"))))
   }
   if (is.null(mapa)) mapa <- .mapa_municipios_interno(sort(unique(dados$ano)), uf)
-  .agregar_por_mapa(dados, mapa, "valor",
-                    grupos = c("ibge", "periodo", "metrica")) |>
+  grupos_mapa <- c("ibge", intersect(c("turno", "periodo", "metrica"),
+                                     names(dados)))
+  .agregar_por_mapa(dados, mapa, "valor", grupos = grupos_mapa) |>
     dplyr::rename(local = ibge) |>
     dplyr::mutate(uf = toupper(uf)) |>
-    dplyr::select(local, periodo, valor, uf, metrica)
+    dplyr::select(dplyr::any_of(
+      c("local", "turno", "periodo", "valor", "uf", "metrica")))
 }
 
 #' Totais de prestacao de contas por UF

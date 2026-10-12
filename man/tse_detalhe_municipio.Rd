@@ -21,13 +21,16 @@ tse_detalhe_municipio(
 serie por metrica na mesma leitura (uso do tsesqlr).}
 
 \item{mapa}{\code{data.frame} com cod_municipio_tse e ibge; \code{FALSE}
-devolve linhas por codigo TSE (cod_municipio_tse, ano, periodo,
-valor, uf, metrica), sem mapear para IBGE.}
+devolve linhas por codigo TSE (cod_municipio_tse, ano, turno,
+periodo, valor, uf, metrica), sem mapear para IBGE.}
 
 \item{dest_dir}{Diretorio de cache do download.}
 }
 \value{
-\code{data.frame} long: local, periodo, valor, uf, metrica.
+\code{data.frame} long: local, periodo, valor, uf, metrica e
+turno quando o detalhe traz a coluna. Cada turno e um ponto
+proprio: \code{periodo} cai no domingo da eleicao
+(\code{\link[=tse_periodo_eleicao]{tse_periodo_eleicao()}}) em vez do 31/12 do ano.
 }
 \description{
 Agrega \code{detalhe_votacao_secao} ao nivel municipal. \code{metrica}
