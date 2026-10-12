@@ -1,3 +1,28 @@
+#' Resultados e detalhe da votacao por secao eleitoral
+#'
+#' Le `votacao_secao_{ano}_{uf}.zip` (votacao nominal por secao) ou,
+#' com `detalhe = TRUE`, o `detalhe_votacao_secao_{ano}.zip`
+#' (aptos/comparecimento/abstencoes/nulos/brancos por secao; zip
+#' NACIONAL, filtrado pelas UFs pedidas quando sao menos de 5). As
+#' colunas de saida seguem os layouts `votacao_secao` e
+#' `detalhe_votacao_secao`.
+#'
+#' O detalhe por secao tambem existe em 2026 (zip nacional sob
+#' `odsele/detalhe_votacao_secao/` no CDN) — o boletim de urna WEB
+#' (bweb) e apenas a via usada por `tse_detalhe_municipio()` em
+#' 2026+ para as metricas municipais.
+#'
+#' @param ano Ano eleitoral.
+#' @param uf Sigla da UF ou "all".
+#' @param detalhe TRUE traz o detalhe da votacao por secao em vez da
+#'   votacao nominal.
+#' @param dest_dir Diretorio de cache.
+#' @return `data.frame` conformado pelo layout correspondente.
+#' @examples
+#' \dontrun{
+#' d <- tse_resultados_secao(2026, "DF", detalhe = TRUE)
+#' }
+#' @export
 tse_resultados_secao <- \(ano, uf, detalhe = FALSE, dest_dir = NULL) {
   assunto <- if (detalhe) "detalhe_votacao_secao" else "votacao_secao"
   if (detalhe) {
