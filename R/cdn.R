@@ -1,12 +1,17 @@
 #' Monta a URL de um arquivo na CDN do TSE
 #'
 #' Os arquivos do portal de dados abertos sao servidos pela CDN
-#' `cdn.tse.jus.br/estatistica/sead/`. O layout mudou entre
-#' ciclos: ate 2024 os zips ficam sob `odsele/` (padrao usado
-#' tambem pelo electionsBR); a partir de 2026, sob
-#' `eleicoes/eleicoes{ano}/{assunto}/`.
+#' `cdn.tse.jus.br/estatistica/sead/`. Os zips regulares ficam
+#' sob `odsele/{assunto}/` em TODOS os ciclos (2022, 2024 e 2026,
+#' confirmado no CKAN e por download direto); o layout
+#' `eleicoes/eleicoes{ano}/` so existe para pacotes especiais
+#' (suplementares, buweb, correspesp, logsgedai) que o tsebr nao
+#' baixa. Alguns diretorios de assunto divergem do nome do arquivo:
+#' `eleitorado_local_votacao` vive sob `eleitorado_locais_votacao`
+#' (plural) em todos os anos.
 #'
-#' @param ano Ano eleitoral (numeric/character).
+#' @param ano Ano eleitoral (numeric/character; mantido por
+#'   compatibilidade, nao afeta mais a URL).
 #' @param assunto Diretorio do assunto na CDN
 #'   (ex.: `"votacao_secao"`, `"perfil_eleitor_secao"`,
 #'   `"eleitorado_local_votacao"`, `"logsgedai"`, `"correspesp"`).
@@ -14,14 +19,11 @@
 #'   `"votacao_secao_2022_DF.zip"`).
 #' @return URL completa.
 #' @keywords internal
+.tse_cdn_dir <- c(eleitorado_local_votacao = "eleitorado_locais_votacao")
+
 .tse_cdn_url <- \(ano, assunto, arquivo) {
-  ano <- as.integer(ano)
-  raiz <- "https://cdn.tse.jus.br/estatistica/sead"
-  if (ano >= 2026L) {
-    paste(raiz, "eleicoes", paste0("eleicoes", ano), assunto, arquivo, sep = "/")
-  } else {
-    paste(raiz, "odsele", assunto, arquivo, sep = "/")
-  }
+  dir <- if (!is.na(.tse_cdn_dir[assunto])) unname(.tse_cdn_dir[assunto]) else assunto
+  paste("https://cdn.tse.jus.br/estatistica/sead", "odsele", dir, arquivo, sep = "/")
 }
 
 #' Caminho do arquivo de hash SHA-512 publicado em par com um zip
