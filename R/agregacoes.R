@@ -254,11 +254,25 @@ tse_detalhe_municipio <- \(ano = NULL, uf, metrica = c("aptos", "comparecimento"
     }), fill = TRUE)
   }
   puxar <- \(a) {
-    ## 2026+: detalhe por secao nao sai como zip; o boletim de urna
-    ## WEB (bweb) traz aptos/comparecimento/abstencoes por UF —
-    ## NAO tem nulos/brancos: esses sao pulados com aviso em vez de
-    ## abortar a carga inteira
+    ## 2026: o zip nacional de detalhe_votacao_secao existe no CDN;
+    ## tentar PRIMEIRO por ele: traz TODAS as metricas (aptos,
+    ## comparecimento, abstencoes, nulos, brancos) numa leitura so e
+    ## nao depende do boletim de urna WEB por UF, cujos arquivos
+    ## podem estar ausentes (PR/RN/RO em 2026) e faziam a carga
+    ## pular a UF em silencio. Se o zip nao sair, cai no bweb por
+    ## UF, que NAO tem nulos/brancos: esses sao pulados com aviso em
+    ## vez de abortar a carga inteira
     if (a >= 2026) {
+      message("tsebr: detalhe_votacao_secao ", a)
+      d <- tryCatch(
+        tse_resultados_secao(a, uf, detalhe = TRUE, dest_dir = dest_dir),
+        error = \(e) {
+          if (!.arquivo_ausente(e)) stop(e)
+          warning("tsebr: detalhe_votacao_secao ", a,
+                  " indisponivel no CDN; caindo no boletim de urna WEB")
+          return(NULL)
+        })
+      if (!is.null(d)) return(agregar_detalhe(d, a))
       metricas_ok <- intersect(metrica,
                                c("aptos", "comparecimento", "abstencoes"))
       ausentes <- setdiff(metrica, metricas_ok)
